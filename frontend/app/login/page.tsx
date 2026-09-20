@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { api, ApiError } from "../../lib/api";
@@ -31,7 +31,7 @@ async function resolveUsername(username: string): Promise<string> {
   return payload.email;
 }
 
-export default function Login() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "";
@@ -187,5 +187,14 @@ export default function Login() {
         </section>
       </div>
     </main>
+  );
+}
+
+
+export default function Login() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   );
 }
