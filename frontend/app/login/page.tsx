@@ -106,7 +106,7 @@ function LoginContent() {
     <main className={styles.page}>
       <div className={styles.shell}>
         <section className={styles.brandPanel}>
-          <div className={styles.brandMark}>P</div>
+          {/* <div className={styles.brandMark}>P</div> */}
           <span className={styles.eyebrow}>PILAR PTIK 2026</span>
           <h1>Portal Review Artikel</h1>
           <p>
