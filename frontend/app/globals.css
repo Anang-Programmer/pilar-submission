@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy: #123b6d;
+  --blue: #1e5aa8;
+  --yellow: #f6c431;
+  --bg: #f4f7fb;
+  --text: #1e293b;
+  --muted: #64748b;
+  --line: #dbe3ef;
+  --green: #15803d;
+  --orange: #b45309;
+  --red: #b42318;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+
+.pilar-loading { min-height: 100vh; display: grid; place-items: center; color: var(--muted); background: var(--bg); }
+.pilar-login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #0e3561, #1e5aa8); }
+.pilar-login-card { width: min(420px, 100%); background: white; border-radius: 18px; padding: 30px; box-shadow: 0 25px 70px #001b3a66; }
+.pilar-login-logo { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; background: var(--navy); color: white; }
+.pilar-login-card h1 { margin: 15px 0 4px; color: var(--navy); font-size: 24px; }
+.pilar-login-card p { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+.pilar-login-card label { display: block; font-size: 12px; font-weight: 700; margin: 12px 0 6px; color: #475569; }
+.pilar-login-card input { width: 100%; padding: 11px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.pilar-login-card button { width: 100%; border: 0; border-radius: 9px; padding: 12px; margin-top: 18px; background: var(--blue); color: white; font-weight: 800; }
+.pilar-login-card button:disabled { opacity: .6; cursor: wait; }
+.pilar-error { margin-top: 14px; color: var(--red); background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 8px; font-size: 12px; }
+
+.pilar-admin-shell { min-height: 100vh; }
+.pilar-topbar { height: 68px; background: white; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 20; }
+.pilar-brand { display: flex; align-items: center; gap: 12px; color: var(--navy); font-size: 20px; }
+.pilar-logo { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; background: var(--navy); color: white; font-weight: 900; }
+.pilar-top-user { font-size: 13px; color: var(--muted); }
+.pilar-layout { display: flex; min-height: calc(100vh - 68px); }
+.pilar-admin-sidebar { width: 235px; flex: 0 0 235px; background: var(--navy); color: white; padding: 22px 14px; display: flex; flex-direction: column; gap: 4px; }
+.pilar-sidebar-title { font-size: 12px; opacity: .65; text-transform: uppercase; letter-spacing: 1px; margin: 8px 12px 18px; }
+.pilar-admin-sidebar button { width: 100%; text-align: left; border: 0; background: transparent; color: white; padding: 11px 14px; border-radius: 9px; font-size: 13px; }
+.pilar-admin-sidebar button:hover, .pilar-admin-sidebar button.active { background: rgba(255,255,255,.12); }
+.pilar-admin-sidebar button span { margin-left: 10px; }
+.pilar-admin-sidebar button:last-child { margin-top: auto; }
+.pilar-main { flex: 1; padding: 28px; max-width: 1550px; width: calc(100% - 235px); }
+.pilar-title-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; margin-bottom: 22px; }
+.pilar-title-row h1 { margin: 0; color: var(--navy); font-size: 27px; }
+.pilar-title-row p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.pilar-cards { display: grid; gap: 13px; }
+.pilar-cards.six { grid-template-columns: repeat(6, 1fr); }
+.pilar-cards.four { grid-template-columns: repeat(4, 1fr); }
+.pilar-card { background: white; border: 1px solid var(--line); border-radius: 14px; padding: 17px; box-shadow: 0 2px 7px rgba(15,23,42,.04); }
+.pilar-num { font-size: 27px; font-weight: 800; color: var(--navy); }
+.pilar-label { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.pilar-grid-2 { display: grid; grid-template-columns: 1.3fr .7fr; gap: 18px; }
+.pilar-panel { background: white; border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-top: 20px; }
+.pilar-panel h3 { margin: 0 0 15px; color: var(--navy); font-size: 16px; }
+.pilar-progress { margin: 12px 0; }
+.pilar-progress > div:first-child { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 5px; }
+.pilar-progress-bar { height: 9px; background: #e8edf4; border-radius: 99px; overflow: hidden; }
+.pilar-progress-bar i { display: block; height: 100%; background: var(--blue); }
+.pilar-alert { background: #fff8df; border-left: 4px solid var(--yellow); padding: 12px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 10px; }
+.pilar-table-wrap { width: 100%; overflow-x: auto; }
+.pilar-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pilar-table th, .pilar-table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.pilar-table th { font-size: 11px; color: var(--muted); background: #f8fafc; white-space: nowrap; }
+.pilar-badge { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.pilar-badge.pending { background: #fff7ed; color: var(--orange); }
+.pilar-badge.review { background: #eff6ff; color: #1d4ed8; }
+.pilar-badge.done { background: #ecfdf5; color: var(--green); }
+.pilar-badge.revision { background: #fefce8; color: #a16207; }
+.pilar-badge.reject { background: #fef2f2; color: var(--red); }
+.pilar-btn { border: 0; border-radius: 8px; padding: 9px 13px; font-weight: 700; }
+.pilar-btn.primary { background: var(--blue); color: white; }
+.pilar-btn.secondary { background: #eef3f9; color: var(--navy); }
+.pilar-btn.danger { background: #fef2f2; color: var(--red); }
+.pilar-btn.small { padding: 7px 10px; font-size: 11px; }
+.pilar-btn:disabled { opacity: .55; cursor: not-allowed; }
+.pilar-filter-row { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 15px; }
+.pilar-filter-row input, .pilar-filter-row select { border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px; background: white; min-width: 220px; }
+.pilar-role-stack { display: flex; gap: 5px; flex-wrap: wrap; }
+.pilar-role-stack span { font-size: 10px; padding: 4px 7px; background: #eef3f9; border-radius: 999px; color: var(--navy); font-weight: 700; }
+.pilar-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pilar-activity { display: grid; gap: 0; }
+.pilar-activity > div { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pilar-activity small { display: block; color: var(--muted); margin-top: 3px; }
+.pilar-empty { padding: 28px 10px; text-align: center; color: var(--muted); font-size: 13px; }
+.pilar-report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pilar-report-grid > div { border: 1px solid var(--line); padding: 12px; border-radius: 10px; }
+.pilar-report-grid span { display: block; color: var(--muted); font-size: 11px; text-transform: capitalize; }
+.pilar-report-grid strong { display: block; color: var(--navy); font-size: 18px; margin-top: 4px; }
+.pilar-footer { text-align: center; color: #94a3b8; font-size: 11px; padding: 25px; }
+.pilar-toast { position: fixed; right: 25px; bottom: 25px; background: var(--navy); color: white; padding: 12px 17px; border-radius: 9px; z-index: 200; font-size: 13px; box-shadow: 0 12px 30px rgba(15,23,42,.18); }
+.pilar-error-banner { background: #fef2f2; color: var(--red); border: 1px solid #fecaca; padding: 11px 13px; border-radius: 10px; margin-bottom: 16px; display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.pilar-error-banner button { border: 0; background: transparent; color: var(--red); font-size: 18px; }
+.pilar-loading-bar { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.pilar-modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.53); display: grid; place-items: center; padding: 20px; z-index: 100; }
+.pilar-modal { width: min(700px, 100%); max-height: 90vh; overflow: auto; background: white; border-radius: 16px; padding: 24px; box-shadow: 0 25px 70px rgba(0,0,0,.18); }
+.pilar-modal-head { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.pilar-modal-head h2 { margin: 0; color: var(--navy); font-size: 19px; }
+.pilar-modal-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.icon-button { border: 0; background: #eef3f9; color: var(--navy); width: 34px; height: 34px; border-radius: 8px; font-size: 20px; }
+.pilar-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.pilar-form-section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.pilar-form-section h3 { color: var(--navy); font-size: 14px; margin: 0 0 12px; }
+.pilar-field { display: block; margin-bottom: 12px; }
+.pilar-field > span { display: block; font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 6px; }
+.pilar-field input, .pilar-field select, .pilar-field textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: white; }
+.pilar-field textarea { min-height: 100px; resize: vertical; }
+.pilar-modal-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.pilar-version-note { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+
+@media (max-width: 1100px) {
+  .pilar-cards.six { grid-template-columns: repeat(3, 1fr); }
+  .pilar-grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .pilar-topbar { padding: 0 14px; }
+  .pilar-top-user { display: none; }
+  .pilar-admin-sidebar { width: 68px; flex-basis: 68px; padding: 22px 8px; }
+  .pilar-sidebar-title { display: none; }
+  .pilar-admin-sidebar button { text-align: center; padding: 11px 5px; }
+  .pilar-admin-sidebar button span:last-child { display: none; }
+  .pilar-main { width: calc(100% - 68px); padding: 18px; }
+  .pilar-cards.six, .pilar-cards.four { grid-template-columns: repeat(2, 1fr); }
+  .pilar-form-grid, .pilar-report-grid { grid-template-columns: 1fr; }
+  .pilar-title-row { align-items: flex-start; flex-direction: column; }
+}

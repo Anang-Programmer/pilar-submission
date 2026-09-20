@@ -1,0 +1,24 @@
+# fastapi
+# uvicorn[standard]
+# sqlalchemy
+# pydantic-settings
+# python-multipart
+# PyJWT
+# pwdlib[argon2]
+# fastapi>=0.115,<1
+# uvicorn[standard]>=0.34,<1
+# pydantic>=2.10,<3
+# pydantic-settings>=2.7,<3
+# email-validator>=2.2,<3
+# supabase>=2.27,<3
+
+
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic>=2.10,<3
+pydantic-settings>=2.7,<3
+email-validator>=2.2,<3
+supabase>=2.27,<3
+bcrypt>=4,<5
+

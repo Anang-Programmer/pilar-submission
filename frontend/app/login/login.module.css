@@ -1,0 +1,18 @@
+.page{min-height:100dvh;padding:0;display:grid;place-items:stretch;background:radial-gradient(circle at top left,rgba(255,255,255,.12),transparent 34%),linear-gradient(145deg,#0b2d56 0%,#174b82 52%,#2164a8 100%)}
+.shell{width:100%;min-height:100dvh;display:grid;grid-template-columns:.95fr 1.05fr;overflow:hidden;background:#fff;border:0;border-radius:0;box-shadow:none}
+.brandPanel{padding:54px 46px;display:flex;flex-direction:column;justify-content:center;color:#fff;background:linear-gradient(160deg,#0b315c,#174b82)}
+.brandMark{width:58px;height:58px;display:grid;place-items:center;margin-bottom:30px;border-radius:16px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);font-size:27px;font-weight:900}
+.eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.78}
+.brandPanel h1{margin:10px 0 12px;font-size:clamp(30px,4vw,46px);line-height:1.08;letter-spacing:-.02em}
+.brandPanel p{max-width:440px;margin:0;color:rgba(255,255,255,.8);font-size:14px;line-height:1.75}
+.roles{display:flex;gap:8px;flex-wrap:wrap;margin-top:28px}.roles span{padding:7px 11px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;font-weight:700}
+.card{width:100%;padding:54px clamp(28px,5vw,62px);display:flex;flex-direction:column;justify-content:center;background:#fff}
+.mobileBrand{display:none}.mobileLogo{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:#0e3561;color:#fff;font-weight:900}.mobileBrand strong{display:block;color:#0e3561;font-size:15px}.mobileBrand span{display:block;color:#64748b;font-size:11px;margin-top:2px}
+.heading>span{display:inline-block;color:#1d63ad;font-size:12px;font-weight:800;margin-bottom:6px}.heading h2{margin:0;color:#0e3561;font-size:30px;letter-spacing:-.02em}.heading p{margin:8px 0 26px;color:#64748b;font-size:13px;line-height:1.6}
+.form{width:100%}.field{margin-bottom:17px}.field label{display:block;margin-bottom:7px;color:#334155;font-size:12px;font-weight:800}.field input{width:100%;min-height:48px;padding:12px 14px;border:1px solid #d4dce7;border-radius:11px;background:#fff;color:#0f172a;outline:none;transition:border-color .15s ease,box-shadow .15s ease}.field input::placeholder{color:#a0aec0}.field input:focus{border-color:#5d8ec4;box-shadow:0 0 0 4px rgba(52,108,174,.1)}
+.passwordWrap{position:relative}.passwordWrap input{padding-right:104px}.toggle{position:absolute;top:50%;right:10px;transform:translateY(-50%);border:0;background:transparent;color:#1d63ad;font-size:11px;font-weight:800;cursor:pointer}
+.submit{width:100%;min-height:48px;margin-top:8px;border:0;border-radius:11px;background:linear-gradient(135deg,#175da3,#2f76c2);color:#fff;font-weight:800;box-shadow:0 12px 24px rgba(31,95,165,.18)}.submit:disabled{opacity:.62;cursor:wait}
+.error{margin-top:14px;color:#b42318;background:#fef2f2;border:1px solid #fecaca;padding:11px 12px;border-radius:10px;font-size:12px;line-height:1.5}
+.footer{display:flex;justify-content:space-between;gap:12px;margin-top:22px;padding-top:16px;border-top:1px solid #eef2f7;color:#94a3b8;font-size:11px}
+@media(max-width:800px){.shell{grid-template-columns:1fr;min-height:100dvh}.brandPanel{display:none}.card{min-height:100dvh;padding:30px 24px 24px}.mobileBrand{display:flex;align-items:center;gap:11px;margin-bottom:28px}}
+@media(max-width:420px){.card{padding:24px 18px 18px}.heading h2{font-size:26px}.footer{flex-direction:column;gap:5px}}
