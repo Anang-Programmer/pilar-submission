@@ -6,11 +6,15 @@ import { supabase } from "../../../lib/supabase";
 import type { ParticipantProfile } from "../types";
 import styles from "../peserta.module.css";
 
-function mentorLabel(assignment: ParticipantProfile["participant_assignments"][number]) {
+function mentorLabel(
+  assignment: NonNullable<ParticipantProfile["participant_assignments"]>[number]
+) {
   const mentor = assignment.mentor;
   if (!mentor) return "Belum ditetapkan";
 
-  return `${mentor.full_name}${mentor.academic_title ? `, ${mentor.academic_title}` : ""}`;
+  return `${mentor.full_name}${
+    mentor.academic_title ? `, ${mentor.academic_title}` : ""
+  }`;
 }
 
 function PasswordSection() {

@@ -42,7 +42,9 @@ export default function UploadRevisiPage() {
       setArticles(value);
       const eligible = value.filter(needsRevision);
       const requestedId = new URLSearchParams(window.location.search).get("article_id");
-      const requested = requestedId ? eligible.find((a) => String(a.id) === requestedId) : null;
+      const requested = requestedId
+        ? eligible.find((a: Article) => String(a.id) === requestedId)
+        : null;
       const first = requested || eligible[0];
       setSelectedId(first ? String(first.id) : "");
     }).catch((err) => setError(err instanceof ApiError ? err.message : "Gagal memuat artikel revisi.")).finally(() => setLoading(false));
