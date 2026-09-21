@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import csv
+import os
 import bcrypt
 import io
 from typing import Any
@@ -47,6 +48,28 @@ from ..supabase import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+ARTICLE_STORAGE_BUCKET = os.getenv("ARTICLE_STORAGE_BUCKET", "article-files")
+
+
+def _make_signed_url(service: Client, file_path: str | None) -> str | None:
+    """Create a temporary signed URL for an article file in Supabase Storage."""
+    if not file_path:
+        return None
+    try:
+        result = service.storage.from_(ARTICLE_STORAGE_BUCKET).create_signed_url(file_path, 60 * 60)
+        if isinstance(result, dict):
+            return result.get("signedURL") or result.get("signedUrl") or result.get("url")
+        return getattr(result, "signedURL", None) or getattr(result, "signedUrl", None) or getattr(result, "url", None)
+    except Exception as exc:
+        if is_transient_supabase_error(exc):
+            reset_service_client()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Layanan Supabase sementara tidak tersedia",
+            ) from exc
+        print(f"[WARN] Signed URL gagal dibuat: {exc}")
+        return None
 
 
 def _as_roles(data: list[dict[str, Any]] | None) -> dict[int, list[str]]:
@@ -2319,6 +2342,89 @@ def delete_project(
         raise
     except Exception as exc:
         _raise_supabase_error(exc, "Gagal menghapus project")
+        raise AssertionError("unreachable")
+
+
+@router.get("/projects/{project_id}/article-access", response_model=dict[str, Any])
+def project_article_access(
+    project_id: int,
+    _: dict = Depends(require_admin),
+    supabase: Client = Depends(get_service_client),
+):
+    """Return signed URLs for the latest article file belonging to a project."""
+    try:
+        project = (
+            supabase.table("projects")
+            .select("id")
+            .eq("id", project_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project tidak ditemukan")
+
+        articles = (
+            supabase.table("articles")
+            .select("id,project_id,title,current_version_id,status,updated_at,created_at")
+            .eq("project_id", project_id)
+            .order("updated_at", desc=True)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not articles:
+            raise HTTPException(status_code=404, detail="Artikel project belum tersedia")
+
+        article = articles[0]
+        version_id = article.get("current_version_id")
+        if version_id is None:
+            raise HTTPException(status_code=404, detail="Versi artikel aktif belum tersedia")
+
+        versions = (
+            supabase.table("article_versions")
+            .select("id,article_id,version_number,file_name,file_path,version_status")
+            .eq("id", int(version_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not versions:
+            raise HTTPException(status_code=404, detail="Versi artikel tidak ditemukan")
+
+        version = versions[0]
+        file_path = version.get("file_path")
+        if not file_path:
+            raise HTTPException(status_code=404, detail="File artikel belum tersedia")
+
+        signed_url = _make_signed_url(supabase, str(file_path))
+        if not signed_url:
+            raise HTTPException(status_code=503, detail="Link file artikel gagal dibuat")
+
+        return {
+            "project_id": project_id,
+            "article": {
+                "id": int(article["id"]),
+                "title": article.get("title"),
+                "status": article.get("status"),
+            },
+            "version": {
+                "id": int(version["id"]),
+                "version_number": version.get("version_number"),
+                "file_name": version.get("file_name"),
+                "version_status": version.get("version_status"),
+            },
+            "view_url": signed_url,
+            "download_url": signed_url,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_supabase_error(exc, "Gagal membuat akses artikel project")
         raise AssertionError("unreachable")
 
 

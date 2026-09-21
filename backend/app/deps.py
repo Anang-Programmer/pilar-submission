@@ -9,7 +9,6 @@ from supabase import Client
 
 from .supabase import (
     get_service_client,
-    get_user_client,
     is_transient_supabase_error,
     reset_service_client,
 )
@@ -77,11 +76,6 @@ def get_access_token(
         )
     return credentials.credentials
 
-
-def get_supabase_user_client(
-    access_token: str = Depends(get_access_token),
-) -> Client:
-    return get_user_client(access_token)
 
 
 def get_current_user(

@@ -72,49 +72,7 @@ export default function PesertaLayout({ children }: { children: React.ReactNode 
     };
   }, [router]);
 
-  useEffect(() => {
-    if (!ready) return;
 
-    const prefetchTargets: Record<string, string[]> = {
-      "/peserta": [
-        "/api/peserta/articles",
-        "/api/peserta/hasil-review",
-      ],
-      "/peserta/artikel": [
-        "/api/peserta/hasil-review",
-        "/api/peserta/riwayat",
-      ],
-      "/peserta/hasil-review": [
-        "/api/peserta/riwayat",
-        "/api/peserta/articles",
-      ],
-      "/peserta/upload-artikel": [
-        "/api/peserta/upload-context",
-        "/api/peserta/articles",
-      ],
-      "/peserta/upload-revisi": [
-        "/api/peserta/articles",
-        "/api/peserta/hasil-review",
-      ],
-      "/peserta/riwayat": [
-        "/api/peserta/articles",
-        "/api/peserta/hasil-review",
-      ],
-      "/peserta/profil": [
-        "/api/peserta/upload-context",
-      ],
-    };
-
-    const targets = prefetchTargets[pathname] || [
-      "/api/peserta/articles",
-    ];
-
-    const timer = window.setTimeout(() => {
-      void api.prefetch(targets);
-    }, 2500);
-
-    return () => window.clearTimeout(timer);
-  }, [pathname, ready]);
 
   if (!ready) return <div className={styles.loading}>Memuat Portal Peserta PILAR...</div>;
 

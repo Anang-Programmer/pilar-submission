@@ -4,8 +4,6 @@ from functools import lru_cache
 
 import httpx
 from supabase import Client, create_client
-from supabase.client import ClientOptions
-
 from .config import settings
 
 
@@ -20,21 +18,6 @@ def get_service_client() -> Client:
     """
     return create_client(settings.supabase_url, settings.supabase_secret_key)
 
-
-def get_user_client(access_token: str) -> Client:
-    """
-    Create a request-scoped client carrying the caller's Supabase access token.
-
-    Database calls made through this client are evaluated by Supabase/PostgREST
-    with the caller identity, so the public-schema RLS policies remain active.
-    """
-    return create_client(
-        settings.supabase_url,
-        settings.supabase_key,
-        options=ClientOptions(
-            headers={"Authorization": f"Bearer {access_token}"},
-        ),
-    )
 
 
 TRANSIENT_SUPABASE_ERRORS = (
