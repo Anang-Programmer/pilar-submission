@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import time
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import RedirectResponse
@@ -38,6 +40,16 @@ router = APIRouter(prefix="/api/peserta", tags=["Peserta"])
 _context_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 _CONTEXT_CACHE_TTL = 10  # seconds
 _CONTEXT_CACHE_MAX = 50
+
+_context_locks: dict[int, threading.Lock] = {}
+_context_locks_lock = threading.Lock()
+
+
+def _get_user_lock(user_id: int) -> threading.Lock:
+    with _context_locks_lock:
+        if user_id not in _context_locks:
+            _context_locks[user_id] = threading.Lock()
+        return _context_locks[user_id]
 
 
 def _get_cached_context(user_id: int) -> dict[str, Any] | None:
@@ -474,11 +486,18 @@ def _enrich_articles(
     article_ids = {int(row["id"]) for row in articles if row.get("id") is not None}
     version_ids = {int(row["current_version_id"]) for row in articles if row.get("current_version_id") is not None}
 
-    authors_by_article, _ = _load_authors(service, article_ids)
-    versions = _load_current_versions(service, version_ids)
-    reviews_by_article, review_counts = _load_latest_reviews(service, article_ids)
-    revisions_by_article, _ = _load_latest_revision_requests(service, article_ids)
-    mentors = _load_mentors(service, article_ids)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        f_authors = executor.submit(_load_authors, service, article_ids)
+        f_versions = executor.submit(_load_current_versions, service, version_ids)
+        f_reviews = executor.submit(_load_latest_reviews, service, article_ids)
+        f_revisions = executor.submit(_load_latest_revision_requests, service, article_ids)
+        f_mentors = executor.submit(_load_mentors, service, article_ids)
+
+        authors_by_article, _ = f_authors.result()
+        versions = f_versions.result()
+        reviews_by_article, review_counts = f_reviews.result()
+        revisions_by_article, _ = f_revisions.result()
+        mentors = f_mentors.result()
 
     result: list[dict[str, Any]] = []
     for article in articles:
@@ -518,73 +537,93 @@ def _participant_context(service: Client, current_user: dict[str, Any]) -> dict[
     if cached is not None:
         return cached
 
-    student = _student_profile(service, user_id)
-    project_ids = _owned_project_ids(service, int(student["id"]))
-    article_ids = _owned_article_ids(service, int(student["id"]), project_ids)
+    with _get_user_lock(user_id):
+        # Double check after acquiring lock
+        cached = _get_cached_context(user_id)
+        if cached is not None:
+            return cached
 
-    projects = (
-        service.table("projects")
-        .select("id,title,description,course_id,project_type,project_url,documentation_url,submitted_by,submitted_at,status,created_at,updated_at")
-        .in_("id", list(project_ids))
-        .order("created_at", desc=True)
-        .execute()
-        .data
-        if project_ids
-        else []
-    )
-    project_rows = projects or []
-    project_map = {int(row["id"]): row for row in project_rows}
+        student = _student_profile(service, user_id)
+        project_ids = _owned_project_ids(service, int(student["id"]))
+        article_ids = _owned_article_ids(service, int(student["id"]), project_ids)
 
-    selection_rows = (
-        service.table("project_selection")
-        .select("id,project_id,selected_by,selection_date,status,score,notes,created_at,updated_at")
-        .in_("project_id", list(project_ids))
-        .order("selection_date", desc=True)
-        .execute()
-        .data
-        if project_ids
-        else []
-    )
-    selection_map: dict[int, dict[str, Any]] = {}
-    for row in selection_rows or []:
-        selection_map.setdefault(int(row["project_id"]), row)
+        def fetch_projects():
+            return (
+                service.table("projects")
+                .select("id,title,description,course_id,project_type,project_url,documentation_url,submitted_by,submitted_at,status,created_at,updated_at")
+                .in_("id", list(project_ids))
+                .order("created_at", desc=True)
+                .execute()
+                .data
+                if project_ids
+                else []
+            )
 
-    article_rows = (
-        service.table("articles")
-        .select("id,project_id,title,abstract,journal_id,status,current_version_id,submitted_at,finalized_at,created_at,updated_at")
-        .in_("id", list(article_ids))
-        .order("updated_at", desc=True)
-        .execute()
-        .data
-        if article_ids
-        else []
-    )
+        def fetch_selections():
+            return (
+                service.table("project_selection")
+                .select("id,project_id,selected_by,selection_date,status,score,notes,created_at,updated_at")
+                .in_("project_id", list(project_ids))
+                .order("selection_date", desc=True)
+                .execute()
+                .data
+                if project_ids
+                else []
+            )
 
-    journal_ids = {int(row["journal_id"]) for row in article_rows or [] if row.get("journal_id") is not None}
-    course_ids = {int(row["course_id"]) for row in project_rows if row.get("course_id") is not None}
-    journal_map = _load_journals(service, journal_ids)
-    course_map = _load_courses(service, course_ids)
+        def fetch_articles():
+            return (
+                service.table("articles")
+                .select("id,project_id,title,abstract,journal_id,status,current_version_id,submitted_at,finalized_at,created_at,updated_at")
+                .in_("id", list(article_ids))
+                .order("updated_at", desc=True)
+                .execute()
+                .data
+                if article_ids
+                else []
+            )
 
-    articles = _enrich_articles(
-        service,
-        article_rows or [],
-        project_map,
-        journal_map,
-        course_map,
-        int(student["id"]),
-    )
+        def fetch_assignments():
+            return _load_participant_course_assignments(service, int(student["id"]))
 
-    # Attach selection + mentor to projects so the dashboard can show the same context
-    # as the prototype without leaking unrelated projects.
-    for project in project_rows:
-        project_id = int(project["id"])
-        project["course"] = course_map.get(int(project["course_id"])) if project.get("course_id") else None
-        project["selection"] = selection_map.get(project_id)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            f_projects = executor.submit(fetch_projects)
+            f_selections = executor.submit(fetch_selections)
+            f_articles = executor.submit(fetch_articles)
+            f_assignments = executor.submit(fetch_assignments)
 
-    participant_assignments = _load_participant_course_assignments(
-        service,
-        int(student["id"]),
-    )
+            project_rows = f_projects.result() or []
+            selection_rows = f_selections.result() or []
+            article_rows = f_articles.result() or []
+            participant_assignments = f_assignments.result()
+
+        project_map = {int(row["id"]): row for row in project_rows}
+        selection_map: dict[int, dict[str, Any]] = {}
+        for row in selection_rows:
+            selection_map.setdefault(int(row["project_id"]), row)
+
+        journal_ids = {int(row["journal_id"]) for row in article_rows if row.get("journal_id") is not None}
+        course_ids = {int(row["course_id"]) for row in project_rows if row.get("course_id") is not None}
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            f_journals = executor.submit(_load_journals, service, journal_ids)
+            f_courses = executor.submit(_load_courses, service, course_ids)
+            journal_map = f_journals.result()
+            course_map = f_courses.result()
+
+        articles = _enrich_articles(
+            service,
+            article_rows,
+            project_map,
+            journal_map,
+            course_map,
+            int(student["id"]),
+        )
+
+        for project in project_rows:
+            project_id = int(project["id"])
+            project["course"] = course_map.get(int(project["course_id"])) if project.get("course_id") else None
+            project["selection"] = selection_map.get(project_id)
 
     result = {
         "student": student,
