@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,50 @@ from ..supabase import (
 
 
 router = APIRouter(prefix="/api/peserta", tags=["Peserta"])
+
+
+# ---------------------------------------------------------------------------
+# Per-user participant context cache (short TTL)
+# ---------------------------------------------------------------------------
+# _participant_context() runs 10-15+ serial Supabase queries and is called
+# by EVERY peserta endpoint.  When the dashboard page loads, the frontend
+# fires /dashboard + /articles in parallel — both call _participant_context()
+# in full, totalling 20-30+ Supabase roundtrips.  This alone causes the
+# Vercel 10s timeout → 503.
+#
+# Solution: cache the context result per user_id for a few seconds.  The
+# second parallel request instantly gets the cached result.  Mutations
+# (POST/PATCH/DELETE) clear the cache for the affected user.
+# ---------------------------------------------------------------------------
+
+_context_cache: dict[int, tuple[float, dict[str, Any]]] = {}
+_CONTEXT_CACHE_TTL = 10  # seconds
+_CONTEXT_CACHE_MAX = 50
+
+
+def _get_cached_context(user_id: int) -> dict[str, Any] | None:
+    entry = _context_cache.get(user_id)
+    if entry is None:
+        return None
+    ts, data = entry
+    if time.monotonic() - ts > _CONTEXT_CACHE_TTL:
+        _context_cache.pop(user_id, None)
+        return None
+    return data
+
+
+def _set_cached_context(user_id: int, data: dict[str, Any]) -> None:
+    if len(_context_cache) >= _CONTEXT_CACHE_MAX:
+        now = time.monotonic()
+        stale = [k for k, (ts, _) in _context_cache.items() if now - ts > _CONTEXT_CACHE_TTL]
+        for k in stale:
+            _context_cache.pop(k, None)
+    _context_cache[user_id] = (time.monotonic(), data)
+
+
+def _invalidate_context(user_id: int) -> None:
+    """Clear cached context after a mutation."""
+    _context_cache.pop(user_id, None)
 
 
 def _raise_supabase_error(exc: Exception, default_message: str) -> None:
@@ -466,7 +511,14 @@ def _enrich_articles(
 
 
 def _participant_context(service: Client, current_user: dict[str, Any]) -> dict[str, Any]:
-    student = _student_profile(service, int(current_user["id"]))
+    user_id = int(current_user["id"])
+
+    # Fast path: return cached context if available.
+    cached = _get_cached_context(user_id)
+    if cached is not None:
+        return cached
+
+    student = _student_profile(service, user_id)
     project_ids = _owned_project_ids(service, int(student["id"]))
     article_ids = _owned_article_ids(service, int(student["id"]), project_ids)
 
@@ -534,13 +586,17 @@ def _participant_context(service: Client, current_user: dict[str, Any]) -> dict[
         int(student["id"]),
     )
 
-    return {
+    result = {
         "student": student,
         "projects": project_rows,
         "articles": articles,
         "selection_map": selection_map,
         "participant_assignments": participant_assignments,
     }
+
+    # Cache the result so parallel requests skip the heavy query chain.
+    _set_cached_context(user_id, result)
+    return result
 
 
 @router.get("/dashboard", response_model=dict[str, Any])
@@ -1159,6 +1215,7 @@ def update_participant_profile(
             .eq("id", int(student["id"]))
             .execute()
         )
+        _invalidate_context(int(current_peserta["id"]))
         return response.data[0] if response.data else allowed
     except HTTPException:
         raise
@@ -1330,6 +1387,8 @@ async def upload_initial_article(
             "status": "active",
         }).execute()
 
+        _invalidate_context(int(current_peserta["id"]))
+
         return {
             "article": updated,
             "version": version,
@@ -1455,6 +1514,8 @@ async def upload_revision(
                 }).eq("id", int(open_revision["id"])).execute()
             except Exception as exc:
                 print(f"[WARN] Gagal menandai revision request selesai: {exc}")
+
+        _invalidate_context(int(current_peserta["id"]))
 
         return {
             "article": updated_article[0] if updated_article else article,

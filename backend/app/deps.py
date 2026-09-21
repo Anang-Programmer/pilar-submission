@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import Depends, HTTPException, status
@@ -12,6 +13,41 @@ from .supabase import (
     is_transient_supabase_error,
     reset_service_client,
 )
+
+
+# ---------------------------------------------------------------------------
+# Per-token auth verification cache (short TTL)
+# ---------------------------------------------------------------------------
+# Every peserta page load triggers 2-3 parallel API calls, each of which
+# independently verifies the JWT via Supabase.  This cache ensures the
+# expensive get_claims() + users-table lookup only happens once per token
+# within a 10-second window.
+# ---------------------------------------------------------------------------
+
+_auth_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_AUTH_CACHE_TTL = 10  # seconds
+_AUTH_CACHE_MAX = 100
+
+
+def _get_cached_user(token: str) -> dict[str, Any] | None:
+    entry = _auth_cache.get(token)
+    if entry is None:
+        return None
+    ts, user = entry
+    if time.monotonic() - ts > _AUTH_CACHE_TTL:
+        _auth_cache.pop(token, None)
+        return None
+    return user
+
+
+def _set_cached_user(token: str, user: dict[str, Any]) -> None:
+    if len(_auth_cache) >= _AUTH_CACHE_MAX:
+        # Evict oldest entries.
+        now = time.monotonic()
+        stale = [k for k, (ts, _) in _auth_cache.items() if now - ts > _AUTH_CACHE_TTL]
+        for k in stale:
+            _auth_cache.pop(k, None)
+    _auth_cache[token] = (time.monotonic(), user)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -58,6 +94,11 @@ def get_current_user(
     The lookup itself is done with the request-scoped client, so the users RLS
     policy is still in force.
     """
+    # Fast path: return cached result if the same token was verified recently.
+    cached = _get_cached_user(access_token)
+    if cached is not None:
+        return cached
+
     try:
         claims_response = service.auth.get_claims(jwt=access_token)
         claims = _claims_dict(claims_response)
@@ -113,6 +154,9 @@ def get_current_user(
 
     user["auth_user_id"] = auth_user_id
     user["claims"] = claims
+
+    # Cache the verified user for subsequent parallel requests.
+    _set_cached_user(access_token, user)
     return user
 
 
@@ -120,6 +164,10 @@ def get_current_user_roles(
     current_user: dict[str, Any] = Depends(get_current_user),
     service: Client = Depends(get_service_client),
 ) -> tuple[dict[str, Any], set[str]]:
+    # Check if roles are already cached on the user dict (populated by auth cache).
+    if "_cached_roles" in current_user:
+        return current_user, current_user["_cached_roles"]
+
     try:
         response = (
             service.table("user_roles")
@@ -142,6 +190,8 @@ def get_current_user_roles(
         if name:
             roles.add(str(name).lower())
 
+    # Attach to user dict so subsequent calls in the same request window reuse it.
+    current_user["_cached_roles"] = roles
     return current_user, roles
 
 
