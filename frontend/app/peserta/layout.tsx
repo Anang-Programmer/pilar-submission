@@ -72,6 +72,22 @@ export default function PesertaLayout({ children }: { children: React.ReactNode 
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!ready) return;
+
+    const timer = window.setTimeout(() => {
+      void api.prefetch([
+        "/api/peserta/articles",
+        "/api/peserta/hasil-review",
+        "/api/peserta/riwayat",
+        "/api/peserta/profil",
+        "/api/peserta/upload-context",
+      ]);
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   if (!ready) return <div className={styles.loading}>Memuat Portal Peserta PILAR...</div>;
 
   const profileName = user?.student_profile?.full_name || user?.username || user?.email || "Peserta";

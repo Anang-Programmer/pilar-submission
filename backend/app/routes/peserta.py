@@ -557,6 +557,7 @@ def dashboard(
         selected_projects = [
             row for row in projects
             if _normalize_status((selection_map.get(int(row["id"])) or {}).get("status")) in {"terpilih", "selected", "select"}
+            or _normalize_status(row.get("status")) in {"terpilih", "selected", "select"}
         ]
         active_article = articles[0] if articles else None
         active_project = (
@@ -579,7 +580,25 @@ def dashboard(
         )
 
         latest_note = None
-        if latest_revision:
+        article_finalized = bool(
+            active_article
+            and (
+                active_article.get("finalized_at")
+                or _normalize_status(active_article.get("status")) in {"finalized", "final", "selesai"}
+            )
+        )
+        latest_revision_open = bool(
+            latest_revision
+            and _normalize_status(latest_revision.get("status")) in {"open", "pending", "requested", "revision_required"}
+        )
+        if article_finalized:
+            latest_note = {
+                "type": "final",
+                "title": "Artikel telah difinalisasi",
+                "message": "Artikel telah disetujui dan difinalisasi oleh Admin.",
+                "created_at": active_article.get("finalized_at") or active_article.get("updated_at"),
+            }
+        elif latest_revision_open:
             latest_note = {
                 "type": "revision",
                 "title": "Revisi diperlukan",
@@ -605,7 +624,7 @@ def dashboard(
             },
             "active_project": active_project,
             "active_article": active_article,
-            "timeline": _timeline(active_article, selection_map.get(int(active_project["id"])) if active_project else None, latest_review, latest_revision),
+            "timeline": _timeline(active_article, active_project, latest_review, latest_revision),
             "latest_note": latest_note,
             "recent_articles": articles[:5],
         }
@@ -682,9 +701,10 @@ def _selected_project_rows(
     rows: list[dict[str, Any]] = []
     for project in context["projects"]:
         selection = project.get("selection")
-        if _normalize_status((selection or {}).get("status")) not in {
-            "terpilih", "selected", "select"
-        }:
+        if (
+            _normalize_status((selection or {}).get("status")) not in {"terpilih", "selected", "select"}
+            and _normalize_status(project.get("status")) not in {"terpilih", "selected", "select"}
+        ):
             continue
 
         item = dict(project)

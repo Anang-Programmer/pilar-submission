@@ -19,28 +19,30 @@ function formatFileSize(bytes?: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 function statusLabel(article: any): string {
-  const revision = String(
-    article?.latest_revision_request?.status || ""
-  ).toLowerCase();
+  const revision = String(article?.latest_revision_request?.status || "").toLowerCase();
+  const recommendation = String(article?.latest_review?.recommendation || "").toLowerCase();
+  const raw = String(article?.status || "").toLowerCase();
 
-  const recommendation = String(
-    article?.latest_review?.recommendation || ""
-  ).toLowerCase();
-
-  const raw = String(
-    article?.status || ""
-  ).toLowerCase();
-
-  // Sudah diterima reviewer
   if (
-    ["accept", "accepted", "diterima"].includes(recommendation) ||
     article?.finalized_at ||
-    ["selesai", "selesai review", "finalized", "final"].includes(raw)
+    ["finalized", "final", "selesai"].includes(raw)
   ) {
     return "Selesai";
   }
 
-  // Masih membutuhkan revisi
+  const currentVersionId =
+    article?.current_version?.id ?? article?.current_version_id ?? null;
+  const reviewedVersionId = article?.latest_review?.article_version_id ?? null;
+  const acceptedCurrentVersion =
+    ["accept", "accepted", "diterima"].includes(recommendation) &&
+    currentVersionId != null &&
+    reviewedVersionId != null &&
+    String(currentVersionId) === String(reviewedVersionId);
+
+  if (acceptedCurrentVersion || raw === "selesai review") {
+    return "Menunggu Finalisasi";
+  }
+
   if (
     ["open", "pending", "requested", "revision_required"].includes(revision) ||
     recommendation === "major revision" ||
@@ -49,7 +51,6 @@ function statusLabel(article: any): string {
     return "Revisi Diperlukan";
   }
 
-  // Sedang dalam proses review
   if (raw.includes("review")) {
     return "Sedang Direview";
   }

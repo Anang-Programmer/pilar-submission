@@ -5,8 +5,24 @@ import { api } from "../../../lib/api";
 import { Badge, Empty, ErrorBanner, PageHeader } from "../../../components/admin/AdminUI";
 import styles from "../admin.module.css";
 
+function normalizeStatus(value: unknown): string {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
 function displayStatus(item: any): string {
-  return item.review_selection_status || "Belum Terpilih";
+  const projectStatus = normalizeStatus(item.status);
+  const selectionStatus = normalizeStatus(item.selection?.status);
+  if (
+    projectStatus === "terpilih" ||
+    projectStatus === "selected" ||
+    projectStatus === "select" ||
+    selectionStatus === "terpilih" ||
+    selectionStatus === "selected" ||
+    selectionStatus === "select"
+  ) {
+    return "Terpilih";
+  }
+  return "Belum Terpilih";
 }
 
 export default function AdminProjectsPage() {

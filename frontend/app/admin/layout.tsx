@@ -117,6 +117,28 @@ export default function AdminLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  useEffect(() => {
+    if (!ready) return;
+
+    const timer = window.setTimeout(() => {
+      void api.prefetch([
+        "/api/admin/users",
+        "/api/admin/reviewers",
+        "/api/admin/participants",
+        "/api/admin/courses",
+        "/api/admin/journals",
+        "/api/admin/projects",
+        "/api/admin/articles",
+        "/api/admin/reviewer-assignments",
+        "/api/admin/reviews",
+        "/api/admin/mentorship-assignments",
+        "/api/admin/reports/summary",
+      ]);
+    }, 2200);
+
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   if (!ready) {
     return (
       <div

@@ -32,7 +32,7 @@ export default function AdminDashboardPage() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [report, setReport] = useState<any>(null);
   const [projects, setProjects] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -47,12 +47,11 @@ export default function AdminDashboardPage() {
         api.admin.dashboard(),
         api.admin.reportSummary(),
         api.admin.projects(),
-        api.admin.auditLogs(),
       ]);
 
       if (!active) return;
 
-      const [dashboardResult, reportResult, projectsResult, auditResult] = results;
+      const [dashboardResult, reportResult, projectsResult] = results;
 
       if (dashboardResult.status === "fulfilled") {
         setDashboard(dashboardResult.value);
@@ -64,11 +63,6 @@ export default function AdminDashboardPage() {
         const value: any = projectsResult.value;
         setProjects(Array.isArray(value) ? value : value?.items ?? []);
       }
-      if (auditResult.status === "fulfilled") {
-        const value: any = auditResult.value;
-        setAuditLogs(Array.isArray(value) ? value : value?.items ?? []);
-      }
-
       const rejected = results.find(
         (result): result is PromiseRejectedResult => result.status === "rejected"
       );
@@ -81,6 +75,17 @@ export default function AdminDashboardPage() {
       }
 
       setLoading(false);
+
+      // Non-critical activity data loads after the main dashboard is already
+      // interactive, so it never delays the active page.
+      void api.admin.recentActivity()
+        .then((value: any) => {
+          if (!active) return;
+          setRecentActivities(Array.isArray(value) ? value : []);
+        })
+        .catch(() => {
+          // Activity is supplementary; keep the dashboard usable if it fails.
+        });
     }
 
     load();
@@ -106,8 +111,6 @@ export default function AdminDashboardPage() {
   const finalProgress = totalArticles
     ? Math.round((articlesFinalized / totalArticles) * 100)
     : 0;
-
-  const recentActivities = auditLogs.slice(0, 5);
 
   const formatDateTime = (value?: string) => {
   if (!value) return "";
@@ -144,6 +147,12 @@ export default function AdminDashboardPage() {
       "mentorship_assignment.create": "Pendamping ditugaskan",
       "mentorship_assignment.update": "Pendamping diperbarui",
       "mentorship_assignment.delete": "Pendamping dihapus",
+      "review.start": "Reviewer mulai review",
+      "review.submit": "Review artikel dikirim",
+      "revision.request": "Revisi diminta",
+      "article.submit": "Artikel dikirim",
+      "article.revision_upload": "Revisi artikel diupload",
+      "article.finalize": "Artikel difinalisasi",
     };
     return labels[action || ""] || "Aktivitas diperbarui";
   };

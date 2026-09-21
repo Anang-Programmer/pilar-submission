@@ -2,7 +2,11 @@ import { supabase } from "./supabase";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-type RequestOptions = RequestInit & { auth?: boolean };
+type ClientCacheMode = "default" | "no-store";
+type RequestOptions = RequestInit & {
+  auth?: boolean;
+  clientCache?: ClientCacheMode;
+};
 
 type SessionSnapshot = {
   token: string;
@@ -10,53 +14,166 @@ type SessionSnapshot = {
 };
 
 type CacheEntry = {
-  expiresAt: number;
   value: unknown;
+  updatedAt: number;
 };
 
 const responseCache = new Map<string, CacheEntry>();
-const inFlightCache = new Map<string, Promise<unknown>>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
 const cacheGenerations = new Map<string, number>();
+let lastSessionUserId: string | null | undefined;
 
-// Short-lived client caching removes repeated GET round trips while keeping
-// workflow data fresh. Mutations clear the current user's cache immediately.
+// Cache is intentionally memory-only. Next.js client navigation keeps this
+// module alive, so sibling pages can reuse GET responses without persisting
+// application data into browser storage.
 function cacheTtl(path: string): number {
-  if (path === "/api/auth/me") return 30_000;
-  if (path.includes("/dashboard")) return 8_000;
-  if (path.includes("/assignments")) return 8_000;
-  if (path.includes("/hasil-review")) return 10_000;
-  if (path.includes("/riwayat")) return 10_000;
-  if (path.endsWith("/profil")) return 30_000;
-  if (path.includes("/upload-context")) return 20_000;
-  if (path.startsWith("/api/admin/courses")) return 30_000;
-  if (path.startsWith("/api/admin/journals")) return 30_000;
-  if (path.startsWith("/api/admin/reviewers")) return 30_000;
-  if (path.startsWith("/api/admin/participants")) return 15_000;
-  return 10_000;
+  if (path === "/api/auth/me") return 120_000;
+  if (path.includes("/dashboard")) return 30_000;
+  if (path.includes("/assignments")) return 30_000;
+  if (path.includes("/hasil-review")) return 20_000;
+  if (path.includes("/riwayat")) return 30_000;
+  if (path.endsWith("/profil")) return 120_000;
+  if (path.includes("/upload-context")) return 300_000;
+  if (path.includes("/notifikasi")) return 15_000;
+
+  if (path.startsWith("/api/admin/courses")) return 300_000;
+  if (path.startsWith("/api/admin/journals")) return 300_000;
+  if (path.startsWith("/api/admin/reviewers")) return 300_000;
+  if (path.startsWith("/api/admin/participants")) return 120_000;
+  if (path.startsWith("/api/admin/users")) return 30_000;
+  if (path.startsWith("/api/admin/projects")) return 30_000;
+  if (path.startsWith("/api/admin/articles")) return 30_000;
+  if (path.startsWith("/api/admin/reviewer-assignments")) return 20_000;
+  if (path.startsWith("/api/admin/reviews")) return 20_000;
+  if (path.startsWith("/api/admin/mentorship")) return 30_000;
+  if (path.startsWith("/api/admin/reports")) return 60_000;
+  if (path.startsWith("/api/admin/audit-logs")) return 20_000;
+  if (path.startsWith("/api/admin/recent-activity")) return 10_000;
+
+  return 30_000;
 }
 
 function buildCacheKey(path: string, userId: string | null): string {
   return `${userId ?? "public"}:${path}`;
 }
 
-function clearUserCache(userId: string | null): void {
-  const scope = userId ?? "public";
-  const prefix = `${scope}:`;
-  cacheGenerations.set(scope, (cacheGenerations.get(scope) ?? 0) + 1);
-  for (const key of responseCache.keys()) {
-    if (key.startsWith(prefix)) responseCache.delete(key);
+function cacheScopePrefix(userId: string | null): string {
+  return `${userId ?? "public"}:`;
+}
+
+function isFresh(entry: CacheEntry, path: string): boolean {
+  return Date.now() - entry.updatedAt < cacheTtl(path);
+}
+
+function clearCacheEntries(userId: string | null, prefixes: string[] = []): void {
+  const prefix = cacheScopePrefix(userId);
+  const keys = new Set([
+    ...responseCache.keys(),
+    ...inFlightRequests.keys(),
+  ]);
+
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+
+    const path = key.slice(prefix.length);
+    const shouldClear =
+      prefixes.length === 0 ||
+      prefixes.some((item) => path === item || path.startsWith(item));
+
+    if (!shouldClear) continue;
+
+    responseCache.delete(key);
+    // Do not let an already-running GET put pre-mutation data back into cache.
+    inFlightRequests.delete(key);
+    cacheGenerations.set(key, (cacheGenerations.get(key) ?? 0) + 1);
   }
-  for (const key of inFlightCache.keys()) {
-    if (key.startsWith(prefix)) inFlightCache.delete(key);
+}
+
+function mutationInvalidations(path: string, method: string): string[] {
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    return [];
   }
+
+  // Participant article lifecycle.
+  if (path === "/api/peserta/articles/upload" || path.includes("/api/peserta/articles/") && path.endsWith("/revisions")) {
+    return [
+      "/api/peserta/dashboard",
+      "/api/peserta/articles",
+      "/api/peserta/riwayat",
+      "/api/peserta/hasil-review",
+    ];
+  }
+
+  if (path === "/api/peserta/profil") {
+    return ["/api/auth/me", "/api/peserta/profil", "/api/peserta/dashboard"];
+  }
+
+  // Reviewer review lifecycle.
+  if (/^\/api\/reviewer\/assignments\/[^/]+\/review$/.test(path)) {
+    return [
+      "/api/reviewer/assignments",
+      "/api/reviewer/dashboard",
+      "/api/reviewer/history",
+    ];
+  }
+
+  // Admin users and reference data.
+  if (path.startsWith("/api/admin/users")) {
+    return [
+      "/api/admin/users",
+      "/api/admin/reviewers",
+      "/api/admin/participants",
+      "/api/admin/dashboard",
+    ];
+  }
+  if (path.startsWith("/api/admin/courses")) {
+    return ["/api/admin/courses", "/api/admin/dashboard"];
+  }
+  if (path.startsWith("/api/admin/journals")) {
+    return ["/api/admin/journals", "/api/admin/dashboard"];
+  }
+  if (path.startsWith("/api/admin/projects") || path.startsWith("/api/admin/project-selection")) {
+    return ["/api/admin/projects", "/api/admin/project-selection", "/api/admin/dashboard"];
+  }
+  if (path.startsWith("/api/admin/articles")) {
+    return [
+      "/api/admin/articles",
+      "/api/admin/projects",
+      "/api/admin/project-selection",
+      "/api/admin/dashboard",
+    ];
+  }
+  if (path.startsWith("/api/admin/reviewer-assignments")) {
+    return [
+      "/api/admin/reviewer-assignments",
+      "/api/admin/reviews",
+      "/api/admin/dashboard",
+    ];
+  }
+  if (path.startsWith("/api/admin/mentorship")) {
+    return ["/api/admin/mentorship-assignments", "/api/admin/mentorship-sessions", "/api/admin/dashboard"];
+  }
+  if (path.startsWith("/api/admin/notifications")) {
+    return ["/api/admin/notifications"];
+  }
+
+  return [];
 }
 
 async function getSessionSnapshot(): Promise<SessionSnapshot> {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
+
+  const userId = data.session?.user?.id ?? null;
+  if (lastSessionUserId !== undefined && lastSessionUserId !== userId) {
+    // Never reuse one account's cached API data for another account.
+    clearCacheEntries(lastSessionUserId);
+  }
+  lastSessionUserId = userId;
+
   return {
     token: data.session?.access_token ?? "",
-    userId: data.session?.user?.id ?? null,
+    userId,
   };
 }
 
@@ -118,15 +235,19 @@ async function requestUncached<T = any>(
   let token = initialToken;
 
   async function fetchRequest(currentToken: string | null): Promise<Response> {
-    const headers = new Headers(options.headers);
+    const { auth: _auth, clientCache: _clientCache, ...fetchOptions } = options;
+    const headers = new Headers(fetchOptions.headers);
+
     if (!headers.has("Content-Type") && !isForm) {
       headers.set("Content-Type", "application/json");
     }
+
     if (options.auth !== false && currentToken) {
       headers.set("Authorization", `Bearer ${currentToken}`);
     }
+
     return fetch(`${API_URL}${path}`, {
-      ...options,
+      ...fetchOptions,
       headers,
     });
   }
@@ -143,11 +264,7 @@ async function requestUncached<T = any>(
     throw error;
   }
 
-  if (
-    response.status === 401 &&
-    options.auth !== false &&
-    retryAuth
-  ) {
+  if (response.status === 401 && options.auth !== false && retryAuth) {
     const refreshedToken = await refreshAccessToken();
 
     if (refreshedToken) {
@@ -181,6 +298,48 @@ async function requestUncached<T = any>(
   return (await response.json()) as T;
 }
 
+function revalidateInBackground<T>(
+  key: string,
+  path: string,
+  options: RequestOptions,
+  retryNetwork: boolean,
+  retryAuth: boolean,
+  token: string | null,
+): void {
+  if (inFlightRequests.has(key)) return;
+
+  const generation = cacheGenerations.get(key) ?? 0;
+  const promise = requestUncached<T>(
+    path,
+    options,
+    retryNetwork,
+    retryAuth,
+    token,
+  );
+
+  inFlightRequests.set(key, promise);
+  void promise
+    .then((value) => {
+      const currentGeneration = cacheGenerations.get(key) ?? 0;
+      if (currentGeneration === generation) {
+        responseCache.set(key, {
+          value,
+          updatedAt: Date.now(),
+        });
+      }
+    })
+    .catch((error) => {
+      // Background revalidation must never surface as a page error.
+      console.warn(`Background revalidation failed for ${path}:`, error);
+    })
+    .finally(() => {
+      if (inFlightRequests.get(key) === promise) {
+        inFlightRequests.delete(key);
+      }
+    });
+
+}
+
 async function request<T = any>(
   path: string,
   options: RequestOptions = {},
@@ -188,8 +347,11 @@ async function request<T = any>(
   retryAuth = true,
 ): Promise<T> {
   const method = (options.method || "GET").toUpperCase();
-  const cacheable = method === "GET" && options.cache !== "no-store";
-  const session = options.auth === false ? { token: "", userId: null } : await getSessionSnapshot();
+  const cacheable = method === "GET" && options.clientCache !== "no-store";
+  const session =
+    options.auth === false
+      ? { token: "", userId: null }
+      : await getSessionSnapshot();
 
   if (options.auth !== false && !session.token) {
     throw new ApiError(
@@ -199,32 +361,59 @@ async function request<T = any>(
   }
 
   if (!cacheable) {
-    const value = await requestUncached(
+    const value = await requestUncached<T>(
       path,
       options,
       retryNetwork,
       retryAuth,
       session.token || null,
     );
-    if (!isSafeMethod(method)) {
-      clearUserCache(session.userId);
+
+    const invalidations = mutationInvalidations(path, method);
+    const mutationTargets = [...new Set([
+      ...invalidations,
+      ...(method !== "GET" && path.startsWith("/api/admin/")
+        ? ["/api/admin/recent-activity"]
+        : []),
+    ])];
+    if (mutationTargets.length > 0) {
+      clearCacheEntries(session.userId, mutationTargets);
+      for (const target of mutationTargets) {
+        // Warm affected GETs after the mutation without delaying the mutation response.
+        void prefetch(target);
+      }
+    } else if (!isSafeMethod(method)) {
+      // Unknown mutations invalidate all current-user cache rather than risk stale data.
+      clearCacheEntries(session.userId);
     }
+
     return value;
   }
 
   const key = buildCacheKey(path, session.userId);
-  const scopeGeneration = cacheGenerations.get(session.userId ?? "public") ?? 0;
   const cached = responseCache.get(key);
+
   if (cached) {
-    if (cached.expiresAt > Date.now()) {
+    if (isFresh(cached, path)) {
       return cached.value as T;
     }
-    responseCache.delete(key);
+
+    // Stale-while-revalidate: return stale data immediately and refresh in background.
+    revalidateInBackground(
+      key,
+      path,
+      options,
+      retryNetwork,
+      retryAuth,
+      session.token || null,
+    );
+    return cached.value as T;
   }
 
-  const active = inFlightCache.get(key);
+  const active = inFlightRequests.get(key);
   if (active) return (await active) as T;
 
+  const generation = cacheGenerations.get(key) ?? 0;
   const promise = requestUncached<T>(
     path,
     options,
@@ -232,21 +421,21 @@ async function request<T = any>(
     retryAuth,
     session.token || null,
   );
-  inFlightCache.set(key, promise);
+  inFlightRequests.set(key, promise);
 
   try {
     const value = await promise;
-    const currentGeneration = cacheGenerations.get(session.userId ?? "public") ?? 0;
-    if (currentGeneration === scopeGeneration) {
+    const currentGeneration = cacheGenerations.get(key) ?? 0;
+    if (currentGeneration === generation) {
       responseCache.set(key, {
-        expiresAt: Date.now() + cacheTtl(path),
         value,
+        updatedAt: Date.now(),
       });
     }
     return value;
   } finally {
-    if (inFlightCache.get(key) === promise) {
-      inFlightCache.delete(key);
+    if (inFlightRequests.get(key) === promise) {
+      inFlightRequests.delete(key);
     }
   }
 }
@@ -308,6 +497,43 @@ function query(
   return value ? `?${value}` : "";
 }
 
+function waitForIdle(delayMs = 1500): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, delayMs);
+    const idle = (window as Window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number;
+    }).requestIdleCallback;
+
+    if (idle) {
+      idle(() => {
+        window.clearTimeout(timer);
+        resolve();
+      }, { timeout: delayMs + 1000 });
+    }
+  });
+}
+
+async function prefetch(paths: string | string[]): Promise<void> {
+  const unique = [...new Set(Array.isArray(paths) ? paths : [paths])];
+
+  for (let index = 0; index < unique.length; index += 1) {
+    if (index > 0) {
+      await waitForIdle(250);
+    }
+
+    try {
+      await request(unique[index]);
+    } catch {
+      // Prefetch is optional. A failed background request must not affect the UI.
+    }
+  }
+}
+
 export const api = {
   getMe: () => request("/api/auth/me"),
 
@@ -319,6 +545,7 @@ export const api = {
 
   history: () => request("/api/reviews"),
   articles: () => request("/api/peserta/articles"),
+  prefetch,
 
   peserta: {
     dashboard: () => request("/api/peserta/dashboard"),
@@ -329,18 +556,35 @@ export const api = {
     reviewResults: () => request("/api/peserta/hasil-review"),
     history: () => request("/api/peserta/riwayat"),
     profile: () => request("/api/peserta/profil"),
-    updateProfile: (payload: any) => request("/api/peserta/profil", { method: "PATCH", body: JSON.stringify(payload) }),
-    uploadInitialArticle: (form: FormData) => request("/api/peserta/articles/upload", { method: "POST", body: form }),
-    uploadRevision: (articleId: number | string, form: FormData) => request(`/api/peserta/articles/${articleId}/revisions`, { method: "POST", body: form }),
-    downloadVersion: (articleId: number | string, versionId: number | string) => request<{ url: string }>(`/api/peserta/articles/${articleId}/versions/${versionId}/download`),
+    updateProfile: (payload: any) =>
+      request("/api/peserta/profil", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
+    uploadInitialArticle: (form: FormData) =>
+      request("/api/peserta/articles/upload", {
+        method: "POST",
+        body: form,
+      }),
+    uploadRevision: (articleId: number | string, form: FormData) =>
+      request(`/api/peserta/articles/${articleId}/revisions`, {
+        method: "POST",
+        body: form,
+      }),
+    downloadVersion: (articleId: number | string, versionId: number | string) =>
+      request<{ url: string }>(
+        `/api/peserta/articles/${articleId}/versions/${versionId}/download`,
+      ),
     notifications: () => request("/api/peserta/notifikasi"),
   },
 
   reviewer: {
     dashboard: () => request("/api/reviewer/dashboard"),
     assignments: () => request("/api/reviewer/assignments"),
-    assignment: (id: number | string) => request(`/api/reviewer/assignments/${id}`),
-    downloadArticle: (id: number | string) => request<{ url: string }>(`/api/reviewer/assignments/${id}/download`),
+    assignment: (id: number | string) =>
+      request(`/api/reviewer/assignments/${id}`),
+    downloadArticle: (id: number | string) =>
+      request<{ url: string }>(`/api/reviewer/assignments/${id}/download`),
     history: () => request("/api/reviewer/history"),
     saveReview: (id: number | string, payload: any) =>
       request(`/api/reviewer/assignments/${id}/review`, {
@@ -358,8 +602,7 @@ export const api = {
     dashboard: () => request("/api/admin/dashboard"),
     users: (params?: { search?: string; role?: string; is_active?: boolean }) =>
       request(`/api/admin/users${query(params || {})}`),
-    user: (id: number | string) =>
-      request(`/api/admin/users/${id}`),
+    user: (id: number | string) => request(`/api/admin/users/${id}`),
     participantAssignments: (userId: number | string) =>
       request(`/api/admin/users/${userId}/participant-assignments`),
     createParticipantAssignment: (userId: number | string, payload: any) =>
@@ -367,12 +610,19 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       }),
-    updateParticipantAssignment: (userId: number | string, assignmentId: number | string, payload: any) =>
+    updateParticipantAssignment: (
+      userId: number | string,
+      assignmentId: number | string,
+      payload: any,
+    ) =>
       request(`/api/admin/users/${userId}/participant-assignments/${assignmentId}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
-    deleteParticipantAssignment: (userId: number | string, assignmentId: number | string) =>
+    deleteParticipantAssignment: (
+      userId: number | string,
+      assignmentId: number | string,
+    ) =>
       request(`/api/admin/users/${userId}/participant-assignments/${assignmentId}`, {
         method: "DELETE",
       }),
@@ -442,6 +692,11 @@ export const api = {
 
     articlesAdmin: (params?: { search?: string; status?: string }) =>
       request(`/api/admin/articles${query(params || {})}`),
+    finalizeArticle: (articleId: number | string) =>
+      request(`/api/admin/articles/${articleId}/finalize`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
     articleVersions: (articleId: number) =>
       request(`/api/admin/articles/${articleId}/versions`),
     articleWorkflow: (articleId: number) =>
@@ -488,6 +743,7 @@ export const api = {
       action?: string;
       entity_type?: string;
     }) => request(`/api/admin/audit-logs${query(params || {})}`),
+    recentActivity: () => request("/api/admin/recent-activity"),
 
     reportSummary: () => request("/api/admin/reports/summary"),
     exportReport: () => download("/api/admin/reports/summary.csv"),

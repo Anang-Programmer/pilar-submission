@@ -19,6 +19,9 @@ function statusFilterLabel(value: unknown): string {
   if (["revision", "revisi", "revision_requested", "revision_required", "major_revision", "minor_revision"].includes(status)) {
     return "Revisi";
   }
+  if (["selesai_review"].includes(status)) {
+    return "Menunggu Finalisasi";
+  }
   if (["under_review", "in_review", "review", "reviewing", "assigned", "assigned_to_reviewer"].includes(status)) {
     return "Sedang Direview";
   }
@@ -41,6 +44,7 @@ export default function AdminArticlesPage() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<any>(null);
   const [versions, setVersions] = useState<any[]>([]);
+  const [finalizingId, setFinalizingId] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -96,6 +100,33 @@ export default function AdminArticlesPage() {
     }
   }
 
+  async function finalizeArticle(article: any) {
+    if (!article?.can_finalize) {
+      setError("Artikel belum memenuhi syarat finalisasi. Pastikan Reviewer sudah memilih Accept.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Finalisasi artikel "${article.title}"? Setelah finalisasi, status artikel akan menjadi Final.`
+    );
+    if (!confirmed) return;
+
+    setFinalizingId(Number(article.id));
+    setError("");
+    try {
+      await api.admin.finalizeArticle(article.id);
+      await load();
+      if (selected?.id === article.id) {
+        const refreshed = (await api.admin.articlesAdmin()).find((item: any) => Number(item.id) === Number(article.id));
+        if (refreshed) setSelected(refreshed);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal memfinalisasi artikel");
+    } finally {
+      setFinalizingId(null);
+    }
+  }
+
   return (
     <>
       <PageHeader title="Monitoring Artikel" description="Pantau artikel dari pengiriman sampai finalisasi." />
@@ -116,6 +147,7 @@ export default function AdminArticlesPage() {
             <option value="">Semua Status</option>
             <option value="Menunggu Assignment">Menunggu Assignment</option>
             <option value="Sedang Direview">Sedang Direview</option>
+            <option value="Menunggu Finalisasi">Menunggu Finalisasi</option>
             <option value="Revisi">Revisi</option>
             <option value="Final">Final</option>
             <option value="Ditolak">Ditolak</option>
@@ -145,14 +177,26 @@ export default function AdminArticlesPage() {
                   <td>{item.title}</td>
                   <td>{item.journal?.name || "—"}</td>
                   <td>{item.current_version ? `v${item.current_version.version_number}` : "—"}</td>
-                  <td><Badge value={item.status || "Menunggu Assignment"} /></td>
+                  <td><Badge value={statusFilterLabel(item.status || "Menunggu Assignment")} /></td>
                   <td>
-                    <button
-                      className={`${styles.btn} ${styles.small} ${styles.secondary}`}
-                      onClick={() => openVersions(item)}
-                    >
-                      Detail Versi
-                    </button>
+                    <div className={styles.actions}>
+                      <button
+                        className={`${styles.btn} ${styles.small} ${styles.secondary}`}
+                        onClick={() => openVersions(item)}
+                      >
+                        Detail Versi
+                      </button>
+                      {item.can_finalize ? (
+                        <button
+                          type="button"
+                          className={`${styles.btn} ${styles.small} ${styles.primary}`}
+                          onClick={() => finalizeArticle(item)}
+                          disabled={finalizingId === Number(item.id)}
+                        >
+                          {finalizingId === Number(item.id) ? "Memproses..." : "Finalisasi"}
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -184,7 +228,7 @@ export default function AdminArticlesPage() {
               </div>
               <div className={styles.detailItem}>
                 <div className={styles.detailLabel}>Status</div>
-                <div className={styles.detailValue}><Badge value={selected.status} /></div>
+                <div className={styles.detailValue}><Badge value={statusFilterLabel(selected.status)} /></div>
               </div>
               <div className={styles.detailItem}>
                 <div className={styles.detailLabel}>Current Version</div>
@@ -213,6 +257,16 @@ export default function AdminArticlesPage() {
               >
                 Assignment Reviewer
               </button>
+              {selected.can_finalize ? (
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.primary}`}
+                  onClick={() => finalizeArticle(selected)}
+                  disabled={finalizingId === Number(selected.id)}
+                >
+                  {finalizingId === Number(selected.id) ? "Memproses..." : "Finalisasi Artikel"}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

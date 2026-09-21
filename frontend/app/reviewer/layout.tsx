@@ -76,6 +76,19 @@ export default function ReviewerLayout({ children }: { children: React.ReactNode
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!ready) return;
+
+    const timer = window.setTimeout(() => {
+      void api.prefetch([
+        "/api/reviewer/assignments",
+        "/api/reviewer/history",
+      ]);
+    }, 1800);
+
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
   if (!ready) {
     return <div className={styles.loading}>Memuat Reviewer PILAR...</div>;
   }

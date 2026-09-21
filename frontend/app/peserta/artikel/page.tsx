@@ -22,16 +22,43 @@ function statusLabel(article: any): string {
   const revision = String(article?.latest_revision_request?.status || "").toLowerCase();
   const recommendation = String(article?.latest_review?.recommendation || "").toLowerCase();
   const raw = String(article?.status || "").toLowerCase();
+
   if (
-  article?.finalized_at ||
-  ["selesai", "selesai review", "finalized", "final"].includes(raw)
-) {
-  return "Selesai";
-}
-  if (["open", "pending", "requested", "revision_required"].includes(revision)) return "Revisi Diperlukan";
-  if (recommendation === "major revision" || recommendation === "minor revision") return "Revisi Diperlukan";
-  if (raw.includes("review")) return "Sedang Direview";
-  if (article?.current_version) return "Artikel Dikirim";
+    article?.finalized_at ||
+    ["finalized", "final", "selesai"].includes(raw)
+  ) {
+    return "Selesai";
+  }
+
+  const currentVersionId =
+    article?.current_version?.id ?? article?.current_version_id ?? null;
+  const reviewedVersionId = article?.latest_review?.article_version_id ?? null;
+  const acceptedCurrentVersion =
+    ["accept", "accepted", "diterima"].includes(recommendation) &&
+    currentVersionId != null &&
+    reviewedVersionId != null &&
+    String(currentVersionId) === String(reviewedVersionId);
+
+  if (acceptedCurrentVersion || raw === "selesai review") {
+    return "Menunggu Finalisasi";
+  }
+
+  if (
+    ["open", "pending", "requested", "revision_required"].includes(revision) ||
+    recommendation === "major revision" ||
+    recommendation === "minor revision"
+  ) {
+    return "Revisi Diperlukan";
+  }
+
+  if (raw.includes("review")) {
+    return "Sedang Direview";
+  }
+
+  if (article?.current_version) {
+    return "Artikel Dikirim";
+  }
+
   return "Belum Dikirim";
 }
 function badgeClass(label: string): string {

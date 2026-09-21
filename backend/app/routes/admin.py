@@ -1353,11 +1353,17 @@ def list_projects(
         )
         recommendation = str((review or {}).get("recommendation") or "").strip().lower()
 
-        # Status proyek di halaman Monitoring Proyek mengikuti keputusan
-        # reviewer pada versi artikel yang sedang aktif.
+        # Status proyek harus mengikuti keputusan seleksi Admin/proyek.
+        # Reviewer Accept hanya membuat artikel siap difinalisasi; tidak
+        # menjadikan proyek otomatis terpilih. Finalisasi Admin akan mengubah
+        # projects.status menjadi "Terpilih". Data project_selection tetap
+        # menjadi sumber tambahan bila memang sudah ada.
+        project_status = str(row.get("status") or "").strip().lower()
+        selection_status = str((row.get("selection") or {}).get("status") or "").strip().lower()
         row["review_selection_status"] = (
             "Terpilih"
-            if recommendation in {"accept", "accepted", "diterima"}
+            if project_status in {"terpilih", "selected", "select"}
+            or selection_status in {"terpilih", "selected", "select"}
             else "Belum Terpilih"
         )
 
@@ -1576,7 +1582,181 @@ def list_articles(
         row["project"] = project_map.get(int(row["project_id"])) if row.get("project_id") else None
         row["current_version"] = version_map.get(int(row["current_version_id"])) if row.get("current_version_id") else None
         row["authors"] = sorted(authors_by_article.get(int(row["id"]), []), key=lambda x: x.get("author_order") or 0)
+        current_review = None
+        current_version = row.get("current_version")
+        if current_version and current_version.get("id") is not None:
+            review_rows = (
+                supabase.table("reviews")
+                .select("id,article_version_id,recommendation,status,submitted_at,created_at")
+                .eq("article_version_id", int(current_version["id"]))
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+                .data
+                or []
+            )
+            current_review = next(
+                (review for review in review_rows
+                 if review.get("submitted_at")
+                 or str(review.get("status") or "").strip().lower() == "submitted"),
+                None,
+            )
+        row["latest_review"] = current_review
+        row["can_finalize"] = bool(
+            current_review
+            and str(current_review.get("recommendation") or "").strip().lower()
+            in {"accept", "accepted", "diterima"}
+            and str(row.get("status") or "").strip().lower()
+            not in {"final", "finalized", "selesai"}
+            and not row.get("finalized_at")
+        )
     return articles
+
+
+@router.post("/articles/{article_id}/finalize", response_model=dict[str, Any])
+def finalize_article(
+    article_id: int,
+    current_admin: dict = Depends(require_admin),
+    supabase: Client = Depends(get_service_client),
+):
+    """Finalize an article and synchronize the related project selection.
+
+    Admin finalization is idempotent: even when the article was already marked
+    finalized, the related project and project_selection are brought into sync.
+    """
+    service = get_service_client()
+    try:
+        article_rows = (
+            service.table("articles")
+            .select("id,project_id,title,status,current_version_id,finalized_at")
+            .eq("id", article_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not article_rows:
+            raise HTTPException(status_code=404, detail="Artikel tidak ditemukan")
+
+        article = article_rows[0]
+        article_status = str(article.get("status") or "").strip().lower()
+        already_finalized = bool(
+            article.get("finalized_at")
+            or article_status in {"final", "finalized", "selesai"}
+        )
+
+        if not already_finalized:
+            current_version_id = article.get("current_version_id")
+            if current_version_id is None:
+                raise HTTPException(status_code=409, detail="Artikel belum memiliki versi aktif")
+
+            accepted_rows = (
+                service.table("reviews")
+                .select("id,article_version_id,recommendation,status,submitted_at,created_at")
+                .eq("article_version_id", int(current_version_id))
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+                .data
+                or []
+            )
+            accepted_review = next(
+                (
+                    row
+                    for row in accepted_rows
+                    if (
+                        row.get("submitted_at")
+                        or str(row.get("status") or "").strip().lower() == "submitted"
+                    )
+                    and str(row.get("recommendation") or "").strip().lower()
+                    in {"accept", "accepted", "diterima"}
+                ),
+                None,
+            )
+            if not accepted_review:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Artikel belum mendapatkan keputusan Accept dari Reviewer pada versi aktif",
+                )
+
+            now_iso = _now_iso()
+            updated_rows = (
+                service.table("articles")
+                .update({
+                    "status": "finalized",
+                    "finalized_at": now_iso,
+                    "updated_at": now_iso,
+                })
+                .eq("id", article_id)
+                .execute()
+                .data
+                or []
+            )
+            if not updated_rows:
+                raise HTTPException(status_code=404, detail="Artikel tidak ditemukan")
+            article = updated_rows[0]
+        else:
+            now_iso = _now_iso()
+
+        project_id = article.get("project_id")
+        if project_id is not None:
+            project_id = int(project_id)
+
+            # Finalisasi artikel oleh Admin juga menetapkan project sebagai
+            # Terpilih. project_selection.selected_by mereferensikan lecturers,
+            # sehingga admin tidak dipaksakan masuk ke kolom tersebut.
+            project_update = (
+                service.table("projects")
+                .update({
+                    "status": "Terpilih",
+                    "updated_at": now_iso,
+                })
+                .eq("id", project_id)
+                .execute()
+            )
+            if not project_update.data:
+                raise HTTPException(status_code=404, detail="Project artikel tidak ditemukan")
+
+            existing_selection = (
+                service.table("project_selection")
+                .select("id")
+                .eq("project_id", project_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            selection_data = {
+                "status": "Terpilih",
+                "selection_date": now_iso[:10],
+                "notes": f"Project ditetapkan melalui finalisasi artikel oleh Admin (artikel {article_id}).",
+                "updated_at": now_iso,
+            }
+
+            if existing_selection:
+                service.table("project_selection").update(selection_data).eq(
+                    "id", int(existing_selection[0]["id"])
+                ).execute()
+            else:
+                service.table("project_selection").insert({
+                    "project_id": project_id,
+                    **selection_data,
+                }).execute()
+
+        _write_audit_log(
+            service,
+            user_id=int(current_admin["id"]),
+            action="article.finalize",
+            entity_type="article",
+            entity_id=article_id,
+            description=f"Finalisasi artikel {article_id} oleh Admin",
+        )
+        return article
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_supabase_error(exc, "Gagal memfinalisasi artikel")
+        raise AssertionError("unreachable")
 
 
 @router.get("/articles/{article_id}/versions", response_model=list[dict[str, Any]])
@@ -2601,86 +2781,265 @@ def delete_notification(
 
 
 def count_finalized_articles(supabase: Client) -> int:
-    """Count articles whose latest submitted review is accepted.
+    """Count only articles explicitly finalized by Admin."""
+    response = (
+        supabase.table("articles")
+        .select("id", count="exact", head=True)
+        .in_("status", ["final", "finalized", "Final", "Finalized"])
+        .execute()
+    )
+    return int(response.count or 0)
 
-    This keeps older revision/review history from being counted as current.
-    Articles explicitly marked final/finalized are also counted.
+
+# ============================================================
+# RECENT WORKFLOW ACTIVITY
+# ============================================================
+
+@router.get("/recent-activity", response_model=list[dict[str, Any]])
+def recent_activity(
+    _: dict = Depends(require_admin),
+    supabase: Client = Depends(get_service_client),
+):
+    """Return the latest cross-role workflow events for the Admin dashboard.
+
+    This intentionally builds events from the workflow tables as well as audit
+    logs, because Reviewer/Peserta workflow actions are not all recorded in
+    audit_logs. The endpoint is safe to load in the background.
     """
+    events: list[dict[str, Any]] = []
+
+    audit_rows = (
+        supabase.table("audit_logs")
+        .select("id,user_id,action,entity_type,entity_id,description,created_at")
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    assignment_rows = (
+        supabase.table("reviewer_assignments")
+        .select("id,article_id,reviewer_id,assigned_at,status,updated_at")
+        .order("assigned_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    review_rows = (
+        supabase.table("reviews")
+        .select("id,assignment_id,reviewer_id,recommendation,status,submitted_at,created_at")
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+    assignment_map = {int(row["id"]): row for row in assignment_rows if row.get("id") is not None}
+
+    revision_rows = (
+        supabase.table("revision_requests")
+        .select("id,article_id,requested_by,revision_round,status,created_at,completed_at")
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    version_rows = (
+        supabase.table("article_versions")
+        .select("id,article_id,version_number,uploaded_by,uploaded_at,file_name")
+        .order("uploaded_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    selection_rows = (
+        supabase.table("project_selection")
+        .select("id,project_id,selected_by,status,selection_date,updated_at")
+        .order("updated_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    article_ids: set[int] = set()
+    project_ids: set[int] = set()
+    user_ids: set[int] = set()
+    lecturer_ids: set[int] = set()
+
+    for row in assignment_rows:
+        if row.get("article_id") is not None:
+            article_ids.add(int(row["article_id"]))
+        if row.get("reviewer_id") is not None:
+            user_ids.add(int(row["reviewer_id"]))
+
+    for row in review_rows:
+        assignment = assignment_map.get(int(row["assignment_id"])) if row.get("assignment_id") is not None else None
+        if assignment and assignment.get("article_id") is not None:
+            article_ids.add(int(assignment["article_id"]))
+        if row.get("reviewer_id") is not None:
+            user_ids.add(int(row["reviewer_id"]))
+
+    for row in revision_rows:
+        if row.get("article_id") is not None:
+            article_ids.add(int(row["article_id"]))
+        if row.get("requested_by") is not None:
+            user_ids.add(int(row["requested_by"]))
+
+    for row in version_rows:
+        if row.get("article_id") is not None:
+            article_ids.add(int(row["article_id"]))
+        if row.get("uploaded_by") is not None:
+            user_ids.add(int(row["uploaded_by"]))
+
+    for row in selection_rows:
+        if row.get("project_id") is not None:
+            project_ids.add(int(row["project_id"]))
+        if row.get("selected_by") is not None:
+            lecturer_ids.add(int(row["selected_by"]))
+
+    for row in audit_rows:
+        if row.get("user_id") is not None:
+            user_ids.add(int(row["user_id"]))
+
     articles = (
         supabase.table("articles")
-        .select("id,current_version_id,status")
+        .select("id,title,project_id")
+        .in_("id", list(article_ids))
         .execute()
         .data
-        or []
-    )
-    if not articles:
-        return 0
+        if article_ids
+        else []
+    ) or []
+    article_map = {int(row["id"]): row for row in articles}
 
-    versions = (
-        supabase.table("article_versions")
-        .select("id,article_id,version_number")
+    projects = (
+        supabase.table("projects")
+        .select("id,title")
+        .in_("id", list(project_ids))
         .execute()
         .data
-        or []
-    )
-    version_map = {
-        int(row["id"]): (int(row["article_id"]), int(row.get("version_number") or 0))
-        for row in versions
-        if row.get("id") is not None and row.get("article_id") is not None
-    }
+        if project_ids
+        else []
+    ) or []
+    project_map = {int(row["id"]): row for row in projects}
 
-    reviews = (
-        supabase.table("reviews")
-        .select("id,article_version_id,recommendation,status,submitted_at")
+    users = (
+        supabase.table("users")
+        .select("id,username,email")
+        .in_("id", list(user_ids))
         .execute()
         .data
-        or []
-    )
+        if user_ids
+        else []
+    ) or []
+    user_map = {int(row["id"]): (row.get("username") or row.get("email") or "Pengguna") for row in users}
 
-    latest_review_by_article: dict[int, dict[str, Any]] = {}
-    for review in reviews:
-        if str(review.get("status") or "").strip().lower() != "submitted":
-            continue
-        version_id = review.get("article_version_id")
-        if version_id is None or int(version_id) not in version_map:
-            continue
-
-        article_id, version_number = version_map[int(version_id)]
-        candidate_key = (
-            version_number,
-            str(review.get("submitted_at") or ""),
-            int(review.get("id") or 0),
+    lecturers = (
+        supabase.table("lecturers")
+        .select("id,full_name,academic_title")
+        .in_("id", list(lecturer_ids))
+        .execute()
+        .data
+        if lecturer_ids
+        else []
+    ) or []
+    lecturer_map = {}
+    for row in lecturers:
+        lecturer_name = row.get("full_name") or "Reviewer"
+        academic_title = row.get("academic_title")
+        lecturer_map[int(row["id"])] = (
+            f"{lecturer_name}, {academic_title}"
+            if academic_title
+            else lecturer_name
         )
-        current = latest_review_by_article.get(article_id)
-        current_key = (
-            int(current.get("_version_number") or 0),
-            str(current.get("submitted_at") or ""),
-            int(current.get("id") or 0),
-        ) if current else (-1, "", -1)
 
-        if candidate_key > current_key:
-            latest_review_by_article[article_id] = {
-                **review,
-                "_version_number": version_number,
-            }
-
-    finalized = 0
-    for article in articles:
-        article_id = article.get("id")
-        if article_id is None:
+    # Keep the audit-log stream for actual Admin actions, but reconstruct
+    # workflow actions that historically were not written to audit_logs.
+    reconstructed_audit_actions = {
+        "reviewer_assignment.create",
+        "project_selection.create",
+        "project_selection.update",
+    }
+    for row in audit_rows:
+        action = str(row.get("action") or "")
+        if action in reconstructed_audit_actions:
             continue
+        events.append({
+            "id": f'audit:{row.get("id")}',
+            "action": action,
+            "description": row.get("description") or (f'oleh {user_map.get(int(row["user_id"]), "Admin")}' if row.get("user_id") else ""),
+            "created_at": row.get("created_at"),
+        })
 
-        article_status = str(article.get("status") or "").strip().lower()
-        if article_status in {"final", "finalized"}:
-            finalized += 1
-            continue
+    for row in assignment_rows:
+        article = article_map.get(int(row["article_id"])) if row.get("article_id") is not None else None
+        reviewer_name = user_map.get(int(row["reviewer_id"]), "Reviewer") if row.get("reviewer_id") is not None else "Reviewer"
+        events.append({
+            "id": f'assignment:{row.get("id")}',
+            "action": "reviewer_assignment.create",
+            "description": f'{reviewer_name} ditugaskan untuk "{article.get("title")}"' if article and article.get("title") else f"{reviewer_name} ditugaskan sebagai Reviewer",
+            "created_at": row.get("assigned_at") or row.get("updated_at"),
+        })
 
-        latest_review = latest_review_by_article.get(int(article_id))
-        recommendation = str((latest_review or {}).get("recommendation") or "").strip().lower()
-        if recommendation in {"accept", "accepted", "diterima"}:
-            finalized += 1
+    for row in review_rows:
+        assignment = assignment_map.get(int(row["assignment_id"])) if row.get("assignment_id") is not None else None
+        article_id = assignment.get("article_id") if assignment else None
+        article = article_map.get(int(article_id)) if article_id is not None else None
+        reviewer_name = user_map.get(int(row["reviewer_id"]), "Reviewer") if row.get("reviewer_id") is not None else "Reviewer"
+        status = str(row.get("status") or "").strip().lower()
+        recommendation = str(row.get("recommendation") or "").strip()
+        if status == "draft" and not row.get("submitted_at"):
+            action = "review.start"
+            description = f'{reviewer_name} sedang mereview "{article.get("title")}"' if article and article.get("title") else f"{reviewer_name} sedang mereview"
+            created_at = row.get("created_at")
+        else:
+            action = "review.submit"
+            description = f'{reviewer_name} mengirim review: {recommendation or "keputusan review"}'
+            created_at = row.get("submitted_at") or row.get("created_at")
+        events.append({"id": f'review:{row.get("id")}', "action": action, "description": description, "created_at": created_at})
 
-    return finalized
+    for row in revision_rows:
+        article = article_map.get(int(row["article_id"])) if row.get("article_id") is not None else None
+        reviewer_name = user_map.get(int(row["requested_by"]), "Reviewer") if row.get("requested_by") is not None else "Reviewer"
+        events.append({
+            "id": f'revision:{row.get("id")}',
+            "action": "revision.request",
+            "description": f'{reviewer_name} meminta revisi  {row.get("revision_round") or ""}'.strip() + (f' untuk "{article.get("title")}"' if article and article.get("title") else ""),
+            "created_at": row.get("created_at"),
+        })
+
+    for row in version_rows:
+        article = article_map.get(int(row["article_id"])) if row.get("article_id") is not None else None
+        uploader = user_map.get(int(row["uploaded_by"]), "Peserta") if row.get("uploaded_by") is not None else "Peserta"
+        version_number = int(row.get("version_number") or 0)
+        events.append({
+            "id": f'version:{row.get("id")}',
+            "action": "article.revision_upload" if version_number > 1 else "article.submit",
+            "description": f'{uploader} mengunggah revisi v{version_number}' if version_number > 1 else f'{uploader} mengirim artikel',
+            "created_at": row.get("uploaded_at"),
+        })
+
+    for row in selection_rows:
+        project = project_map.get(int(row["project_id"])) if row.get("project_id") is not None else None
+        status = str(row.get("status") or "").strip().lower()
+        selected_by = lecturer_map.get(int(row["selected_by"]), "Reviewer") if row.get("selected_by") is not None else "Reviewer"
+        events.append({
+            "id": f'selection:{row.get("id")}',
+            "action": "project_selection.update",
+            "description": f'Proyek "{project.get("title")}" berstatus {row.get("status")}' if project and project.get("title") else f"Status proyek diperbarui oleh {selected_by}",
+            "created_at": row.get("updated_at") or row.get("selection_date"),
+        })
+
+    events.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return events[:5]
 
 
 # ============================================================
@@ -2740,7 +3099,7 @@ def report_summary(
         .execute()
     )
 
-    selected_projects = count_with_status(supabase, "project_selection", {"selected", "Selected", "Terpilih"})
+    selected_projects = count_with_status(supabase, "projects", {"selected", "Selected", "Terpilih"})
     assignment_rows = supabase.table("reviewer_assignments").select("id,article_id,status").execute().data or []
     completed = sum(1 for row in assignment_rows if str(row.get("status", "")).lower() in {"completed", "selesai"})
     total_assignments = len(assignment_rows)
