@@ -4,6 +4,62 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 type RequestOptions = RequestInit & { auth?: boolean };
 
+type SessionSnapshot = {
+  token: string;
+  userId: string | null;
+};
+
+type CacheEntry = {
+  expiresAt: number;
+  value: unknown;
+};
+
+const responseCache = new Map<string, CacheEntry>();
+const inFlightCache = new Map<string, Promise<unknown>>();
+const cacheGenerations = new Map<string, number>();
+
+// Short-lived client caching removes repeated GET round trips while keeping
+// workflow data fresh. Mutations clear the current user's cache immediately.
+function cacheTtl(path: string): number {
+  if (path === "/api/auth/me") return 30_000;
+  if (path.includes("/dashboard")) return 8_000;
+  if (path.includes("/assignments")) return 8_000;
+  if (path.includes("/hasil-review")) return 10_000;
+  if (path.includes("/riwayat")) return 10_000;
+  if (path.endsWith("/profil")) return 30_000;
+  if (path.includes("/upload-context")) return 20_000;
+  if (path.startsWith("/api/admin/courses")) return 30_000;
+  if (path.startsWith("/api/admin/journals")) return 30_000;
+  if (path.startsWith("/api/admin/reviewers")) return 30_000;
+  if (path.startsWith("/api/admin/participants")) return 15_000;
+  return 10_000;
+}
+
+function buildCacheKey(path: string, userId: string | null): string {
+  return `${userId ?? "public"}:${path}`;
+}
+
+function clearUserCache(userId: string | null): void {
+  const scope = userId ?? "public";
+  const prefix = `${scope}:`;
+  cacheGenerations.set(scope, (cacheGenerations.get(scope) ?? 0) + 1);
+  for (const key of responseCache.keys()) {
+    if (key.startsWith(prefix)) responseCache.delete(key);
+  }
+  for (const key of inFlightCache.keys()) {
+    if (key.startsWith(prefix)) inFlightCache.delete(key);
+  }
+}
+
+async function getSessionSnapshot(): Promise<SessionSnapshot> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return {
+    token: data.session?.access_token ?? "",
+    userId: data.session?.user?.id ?? null,
+  };
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -12,12 +68,6 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
   }
-}
-
-async function getAccessToken(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return data.session?.access_token ?? null;
 }
 
 async function refreshAccessToken(): Promise<string | null> {
@@ -56,48 +106,43 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function request<T = any>(
+async function requestUncached<T = any>(
   path: string,
-  options: RequestOptions = {},
-  retryNetwork = true,
-  retryAuth = true,
+  options: RequestOptions,
+  retryNetwork: boolean,
+  retryAuth: boolean,
+  initialToken: string | null,
 ): Promise<T> {
   const method = (options.method || "GET").toUpperCase();
-  const headers = new Headers(options.headers);
   const isForm = options.body instanceof FormData;
+  let token = initialToken;
 
-  if (!headers.has("Content-Type") && !isForm) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  if (options.auth !== false) {
-    const token = await getAccessToken();
-    if (!token) {
-      throw new ApiError(
-        "Sesi login tidak tersedia atau sudah kedaluwarsa.",
-        401,
-      );
+  async function fetchRequest(currentToken: string | null): Promise<Response> {
+    const headers = new Headers(options.headers);
+    if (!headers.has("Content-Type") && !isForm) {
+      headers.set("Content-Type", "application/json");
     }
-    headers.set("Authorization", `Bearer ${token}`);
+    if (options.auth !== false && currentToken) {
+      headers.set("Authorization", `Bearer ${currentToken}`);
+    }
+    return fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+    });
   }
 
   let response: Response;
 
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      headers,
-    });
+    response = await fetchRequest(token);
   } catch (error) {
-    // Network failure is safe to retry only for idempotent reads.
     if (retryNetwork && isSafeMethod(method)) {
       await sleep(350);
-      return request<T>(path, options, false, retryAuth);
+      return requestUncached(path, options, false, retryAuth, token);
     }
     throw error;
   }
 
-  // Expired token: refresh once, then retry the original operation.
   if (
     response.status === 401 &&
     options.auth !== false &&
@@ -106,38 +151,26 @@ async function request<T = any>(
     const refreshedToken = await refreshAccessToken();
 
     if (refreshedToken) {
-      const retryHeaders = new Headers(options.headers);
-      const retryIsForm = options.body instanceof FormData;
-
-      if (!retryHeaders.has("Content-Type") && !retryIsForm) {
-        retryHeaders.set("Content-Type", "application/json");
-      }
-      retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
-
+      token = refreshedToken;
       try {
-        response = await fetch(`${API_URL}${path}`, {
-          ...options,
-          headers: retryHeaders,
-        });
+        response = await fetchRequest(token);
       } catch (error) {
         if (isSafeMethod(method)) {
           await sleep(350);
-          return request<T>(path, options, false, false);
+          return requestUncached(path, options, false, false, token);
         }
         throw error;
       }
     }
   }
 
-  // Supabase can temporarily disconnect upstream connections. For GET-like
-  // operations only, retry once so POST/PATCH/DELETE are never duplicated.
   if (
     retryNetwork &&
     isSafeMethod(method) &&
     isTransientStatus(response.status)
   ) {
     await sleep(350);
-    return request<T>(path, options, false, retryAuth);
+    return requestUncached(path, options, false, retryAuth, token);
   }
 
   if (!response.ok) {
@@ -148,9 +181,79 @@ async function request<T = any>(
   return (await response.json()) as T;
 }
 
+async function request<T = any>(
+  path: string,
+  options: RequestOptions = {},
+  retryNetwork = true,
+  retryAuth = true,
+): Promise<T> {
+  const method = (options.method || "GET").toUpperCase();
+  const cacheable = method === "GET" && options.cache !== "no-store";
+  const session = options.auth === false ? { token: "", userId: null } : await getSessionSnapshot();
+
+  if (options.auth !== false && !session.token) {
+    throw new ApiError(
+      "Sesi login tidak tersedia atau sudah kedaluwarsa.",
+      401,
+    );
+  }
+
+  if (!cacheable) {
+    const value = await requestUncached(
+      path,
+      options,
+      retryNetwork,
+      retryAuth,
+      session.token || null,
+    );
+    if (!isSafeMethod(method)) {
+      clearUserCache(session.userId);
+    }
+    return value;
+  }
+
+  const key = buildCacheKey(path, session.userId);
+  const scopeGeneration = cacheGenerations.get(session.userId ?? "public") ?? 0;
+  const cached = responseCache.get(key);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+    responseCache.delete(key);
+  }
+
+  const active = inFlightCache.get(key);
+  if (active) return (await active) as T;
+
+  const promise = requestUncached<T>(
+    path,
+    options,
+    retryNetwork,
+    retryAuth,
+    session.token || null,
+  );
+  inFlightCache.set(key, promise);
+
+  try {
+    const value = await promise;
+    const currentGeneration = cacheGenerations.get(session.userId ?? "public") ?? 0;
+    if (currentGeneration === scopeGeneration) {
+      responseCache.set(key, {
+        expiresAt: Date.now() + cacheTtl(path),
+        value,
+      });
+    }
+    return value;
+  } finally {
+    if (inFlightCache.get(key) === promise) {
+      inFlightCache.delete(key);
+    }
+  }
+}
+
 async function download(path: string, retryNetwork = true): Promise<Blob> {
-  const token = await getAccessToken();
-  if (!token) {
+  const session = await getSessionSnapshot();
+  if (!session.token) {
     throw new ApiError(
       "Sesi login tidak tersedia atau sudah kedaluwarsa.",
       401,
@@ -161,7 +264,7 @@ async function download(path: string, retryNetwork = true): Promise<Blob> {
 
   try {
     response = await fetch(`${API_URL}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${session.token}` },
     });
   } catch (error) {
     if (retryNetwork) {
