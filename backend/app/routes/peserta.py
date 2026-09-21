@@ -1364,7 +1364,7 @@ async def upload_initial_article(
                 "file_name": file.filename,
                 "file_path": storage_path,
                 "file_url": None,
-                "file_type": file.content_type,
+                "file_type": extension,
                 "file_size": len(content),
                 "uploaded_by": int(current_peserta["id"]),
                 "version_status": "submitted",
@@ -1436,6 +1436,8 @@ async def upload_initial_article(
     except HTTPException:
         raise
     except Exception as exc:
+        print(f"[UPLOAD ARTICLE ERROR] {type(exc).__name__}: {exc}")
+        print(f"[UPLOAD ARTICLE ERROR REPR] {repr(exc)}")
         _raise_supabase_error(exc, "Gagal mengunggah artikel")
         raise AssertionError("unreachable")
 
@@ -1484,7 +1486,7 @@ async def upload_revision(
                 "file_name": file.filename,
                 "file_path": storage_path,
                 "file_url": None,
-                "file_type": file.content_type,
+                "file_type": extension,
                 "file_size": len(content),
                 "uploaded_by": int(current_peserta["id"]),
                 "version_status": "submitted",
