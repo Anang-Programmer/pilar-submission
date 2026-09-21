@@ -497,36 +497,63 @@ function query(
   return value ? `?${value}` : "";
 }
 
-function waitForIdle(delayMs = 1500): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
+function canPrefetch(): boolean {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return false;
+  }
 
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(resolve, delayMs);
-    const idle = (window as Window & {
-      requestIdleCallback?: (
-        callback: () => void,
-        options?: { timeout: number },
-      ) => number;
-    }).requestIdleCallback;
+  if (document.hidden) return false;
 
-    if (idle) {
-      idle(() => {
-        window.clearTimeout(timer);
-        resolve();
-      }, { timeout: delayMs + 1000 });
-    }
+  const connection = (navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+  }).connection;
+
+  if (connection?.saveData) return false;
+  if (connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") {
+    return false;
+  }
+
+  return true;
+}
+
+async function waitForIdle(delayMs = 2200): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  // Give the active page a head start before background work is even considered.
+  await new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+
+  if (!canPrefetch()) return;
+
+  const idle = (window as Window & {
+    requestIdleCallback?: (
+      callback: () => void,
+      options?: { timeout: number },
+    ) => number;
+  }).requestIdleCallback;
+
+  if (!idle) return;
+
+  await new Promise<void>((resolve) => {
+    idle(() => resolve(), { timeout: 1500 });
   });
 }
 
 async function prefetch(paths: string | string[]): Promise<void> {
+  if (!canPrefetch()) return;
+
   const unique = [...new Set(Array.isArray(paths) ? paths : [paths])];
 
   for (let index = 0; index < unique.length; index += 1) {
     if (index > 0) {
-      await waitForIdle(250);
+      await waitForIdle(600);
+      if (!canPrefetch()) return;
     }
 
     try {
+      // request() deduplicates with an active request and reuses a fresh cache entry,
+      // so prefetch never creates a duplicate GET for the same resource.
       await request(unique[index]);
     } catch {
       // Prefetch is optional. A failed background request must not affect the UI.

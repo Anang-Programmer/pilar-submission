@@ -120,24 +120,65 @@ export default function AdminLayout({
   useEffect(() => {
     if (!ready) return;
 
-    const timer = window.setTimeout(() => {
-      void api.prefetch([
-        "/api/admin/users",
-        "/api/admin/reviewers",
-        "/api/admin/participants",
-        "/api/admin/courses",
-        "/api/admin/journals",
+    const prefetchTargets: Record<string, string[]> = {
+      "/admin": [
         "/api/admin/projects",
         "/api/admin/articles",
+      ],
+      "/admin/pengguna": [
+        "/api/admin/reviewers",
+        "/api/admin/participants",
+      ],
+      "/admin/reviewer": [
+        "/api/admin/reviewers",
+        "/api/admin/reviewer-assignments",
+      ],
+      "/admin/mata-kuliah": [
+        "/api/admin/courses",
+      ],
+      "/admin/jurnal": [
+        "/api/admin/journals",
+      ],
+      "/admin/proyek": [
+        "/api/admin/articles",
+        "/api/admin/reviewer-assignments",
+      ],
+      "/admin/artikel": [
+        "/api/admin/projects",
+        "/api/admin/reviewer-assignments",
+      ],
+      "/admin/assignment-reviewer": [
+        "/api/admin/reviewers",
+        "/api/admin/articles",
+      ],
+      "/admin/monitoring-review": [
         "/api/admin/reviewer-assignments",
         "/api/admin/reviews",
+      ],
+      "/admin/peserta": [
+        "/api/admin/participants",
+        "/api/admin/projects",
+      ],
+      "/admin/pendamping": [
         "/api/admin/mentorship-assignments",
+        "/api/admin/reviewers",
+      ],
+      "/admin/laporan": [
         "/api/admin/reports/summary",
-      ]);
-    }, 2200);
+        "/api/admin/recent-activity",
+      ],
+    };
+
+    const targets = prefetchTargets[pathname] || [
+      "/api/admin/projects",
+    ];
+
+    const timer = window.setTimeout(() => {
+      void api.prefetch(targets);
+    }, 2800);
 
     return () => window.clearTimeout(timer);
-  }, [ready]);
+  }, [pathname, ready]);
 
   if (!ready) {
     return (

@@ -79,15 +79,32 @@ export default function ReviewerLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     if (!ready) return;
 
-    const timer = window.setTimeout(() => {
-      void api.prefetch([
+    const prefetchTargets: Record<string, string[]> = {
+      "/reviewer": [
         "/api/reviewer/assignments",
         "/api/reviewer/history",
-      ]);
-    }, 1800);
+      ],
+      "/reviewer/artikel": [
+        "/api/reviewer/history",
+      ],
+      "/reviewer/riwayat": [
+        "/api/reviewer/assignments",
+      ],
+      "/reviewer/profil": [
+        "/api/reviewer/assignments",
+      ],
+    };
+
+    const targets = prefetchTargets[pathname] || [
+      "/api/reviewer/assignments",
+    ];
+
+    const timer = window.setTimeout(() => {
+      void api.prefetch(targets);
+    }, 2500);
 
     return () => window.clearTimeout(timer);
-  }, [ready]);
+  }, [pathname, ready]);
 
   if (!ready) {
     return <div className={styles.loading}>Memuat Reviewer PILAR...</div>;
