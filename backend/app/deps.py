@@ -20,12 +20,19 @@ from .supabase import (
 # Every peserta page load triggers 2-3 parallel API calls, each of which
 # independently verifies the JWT via Supabase.  This cache ensures the
 # expensive get_claims() + users-table lookup only happens once per token
-# within a 10-second window.
+# within the TTL window.
+#
+# TTL 10 detik hampir tidak pernah kena pada pemakaian normal (sekali membaca
+# halaman sudah lewat 10 detik), sehingga setiap navigasi membayar ulang
+# verifikasi penuh: get_claims + users + user_roles = 3 round-trip sekuensial.
+# Diperpanjang jadi 30 detik. Trade-off: perubahan role / non-aktifnya user
+# baru berlaku maksimal 30 detik setelahnya; turunkan _AUTH_CACHE_TTL bila
+# ingin lebih ketat.
 # ---------------------------------------------------------------------------
 
 _auth_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_AUTH_CACHE_TTL = 10  # seconds
-_AUTH_CACHE_MAX = 100
+_AUTH_CACHE_TTL = 30  # seconds
+_AUTH_CACHE_MAX = 500
 
 
 def _get_cached_user(token: str) -> dict[str, Any] | None:
@@ -41,15 +48,54 @@ def _get_cached_user(token: str) -> dict[str, Any] | None:
 
 def _set_cached_user(token: str, user: dict[str, Any]) -> None:
     if len(_auth_cache) >= _AUTH_CACHE_MAX:
-        # Evict oldest entries.
+        # Buang entri kedaluwarsa lebih dulu, lalu yang paling tua. Tanpa
+        # langkah kedua ini cache bisa tumbuh tak terbatas selama semua entri
+        # masih segar.
         now = time.monotonic()
         stale = [k for k, (ts, _) in _auth_cache.items() if now - ts > _AUTH_CACHE_TTL]
         for k in stale:
             _auth_cache.pop(k, None)
+        while len(_auth_cache) >= _AUTH_CACHE_MAX:
+            oldest = min(_auth_cache, key=lambda k: _auth_cache[k][0])
+            _auth_cache.pop(oldest, None)
     _auth_cache[token] = (time.monotonic(), user)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+# Kolom users yang dibaca saat verifikasi token. Versi embedded menambahkan
+# user_roles agar profil + role selesai dalam satu round-trip. Hasil keduanya
+# sudah diverifikasi identik pada data nyata.
+_USER_PLAIN_SELECT = "id,auth_user_id,username,email,is_active,created_at,updated_at"
+_USER_EMBEDDED_SELECT = _USER_PLAIN_SELECT + ",user_roles(role:roles(name))"
+
+
+def _extract_role_names(rows: Any) -> set[str] | None:
+    """Ubah hasil embed user_roles menjadi himpunan nama role lowercase.
+
+    Kembalikan None bila bentuk datanya tidak dikenali, supaya pemanggil
+    memakai jalur query user_roles yang terpisah (perilaku asli) alih-alih
+    menyimpulkan user tidak punya role.
+    """
+    if rows is None:
+        return None
+    if isinstance(rows, dict):
+        rows = [rows]
+    if not isinstance(rows, list):
+        return None
+
+    roles: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            return None
+        role = item.get("role") or {}
+        if not isinstance(role, dict):
+            return None
+        name = role.get("name")
+        if name:
+            roles.add(str(name).lower())
+    return roles
 
 
 def _claims_dict(claims_response: Any) -> dict[str, Any]:
@@ -117,13 +163,27 @@ def get_current_user(
         )
 
     try:
-        response = (
-            service.table("users")
-            .select("id,auth_user_id,username,email,is_active,created_at,updated_at")
-            .eq("auth_user_id", auth_user_id)
-            .limit(1)
-            .execute()
-        )
+        try:
+            # Ambil profil user sekaligus role-nya dalam SATU round-trip.
+            # Terpisah, users + user_roles = 2 round-trip sekuensial.
+            response = (
+                service.table("users")
+                .select(_USER_EMBEDDED_SELECT)
+                .eq("auth_user_id", auth_user_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            # Relasi embed mungkin tidak tersedia pada skema ini. Mundur ke
+            # query asli; bila query ini juga gagal, exception-nya diteruskan
+            # ke handler di bawah sehingga penanganan 503/401 tidak berubah.
+            response = (
+                service.table("users")
+                .select(_USER_PLAIN_SELECT)
+                .eq("auth_user_id", auth_user_id)
+                .limit(1)
+                .execute()
+            )
     except Exception as exc:
         if is_transient_supabase_error(exc):
             reset_service_client()
@@ -133,7 +193,10 @@ def get_current_user(
         ) from exc
 
     rows = getattr(response, "data", None) or []
-    user = rows[0] if isinstance(rows, list) else rows
+    # rows[0] pada list kosong dulunya melempar IndexError sehingga berakhir
+    # sebagai 500. Dijaga di sini agar cabang 403 di bawah yang berperan,
+    # persis seperti niat asli kode ini.
+    user = (rows[0] if rows else {}) if isinstance(rows, list) else rows
     if not user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -148,6 +211,16 @@ def get_current_user(
 
     user["auth_user_id"] = auth_user_id
     user["claims"] = claims
+
+    # Role ikut terbawa bila query embed berhasil, sehingga
+    # get_current_user_roles tidak perlu round-trip ketiga. Bentuk dict user
+    # tetap sama seperti semula karena key embed dibuang. Bila bentuknya tidak
+    # dikenali, _cached_roles sengaja tidak diisi agar jalur query terpisah di
+    # get_current_user_roles tetap dipakai.
+    embedded_roles = user.pop("user_roles", None)
+    role_names = _extract_role_names(embedded_roles)
+    if role_names is not None:
+        user["_cached_roles"] = role_names
 
     # Cache the verified user for subsequent parallel requests.
     _set_cached_user(access_token, user)
