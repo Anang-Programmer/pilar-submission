@@ -161,7 +161,7 @@ export default function UploadArtikelPage() {
         <label>File Artikel</label>
         <div className={styles.fileBox}>
           <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-          <div className={styles.fileName}>{file ? `${file.name} · ${Math.round(file.size / 1024)} KB` : "PDF/DOC/DOCX · Maks. 15 MB"}</div>
+          <div className={styles.fileName}>{file ? `${file.name} · ${Math.round(file.size / 1024)} KB` : "PDF/DOC/DOCX · Maks. 10 MB"}</div>
         </div>
       </div>
 

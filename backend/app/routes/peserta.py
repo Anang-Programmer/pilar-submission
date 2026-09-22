@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -880,7 +881,7 @@ async def article_detail(
 
 ARTICLE_STORAGE_BUCKET = os.getenv("ARTICLE_STORAGE_BUCKET", "article-files")
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx"}
-MAX_FILE_SIZE = 15 * 1024 * 1024  # 15 MB
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def _file_extension(filename: str | None) -> str:
@@ -1205,13 +1206,120 @@ async def update_participant_profile(
         raise AssertionError("unreachable")
 
 
+def _pending_storage_path(student_id: int, filename: str) -> str:
+    """Path untuk unggahan langsung pada artikel yang belum punya article_id.
+
+    Article-id baru diketahui setelah baris articles dibuat, sementara URL
+    unggah harus terbit lebih dulu. Struktur file_path tidak pernah di-parse di
+    tempat lain (hanya dipakai sebagai kunci opaque untuk signed URL dan
+    remove), jadi path sementara ini aman disimpan apa adanya.
+    """
+    safe_name = Path(filename).name.replace(" ", "_")
+    return f"articles/{student_id}/pending/{uuid.uuid4().hex}_{safe_name}"
+
+
+def _create_signed_upload_url(service: Client, file_path: str) -> dict[str, Any]:
+    """Terbitkan URL unggah sekali-pakai di Supabase Storage.
+
+    Browser mengunggah byte file langsung ke Storage, sehingga file tidak
+    pernah melewati body request backend. Inilah yang membuat file di atas
+    batas payload platform hosting tetap bisa diunggah.
+    """
+    try:
+        result = service.storage.from_(ARTICLE_STORAGE_BUCKET).create_signed_upload_url(file_path)
+    except Exception as exc:
+        _raise_supabase_error(exc, "Gagal membuat URL unggah file artikel")
+        raise AssertionError("unreachable")
+
+    data = result if isinstance(result, dict) else getattr(result, "__dict__", {})
+    signed_url = data.get("signed_url") or data.get("signedUrl")
+    token = data.get("token")
+    resolved_path = data.get("path") or file_path
+
+    if not signed_url or not token:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Gagal membuat URL unggah file artikel",
+        )
+
+    return {"upload_url": signed_url, "token": token, "path": resolved_path}
+
+
+UPLOAD_SCOPES = {"initial", "revision"}
+
+
+@router.post("/uploads/signed-url", response_model=dict[str, Any])
+async def create_article_upload_url(
+    scope: str = Form("initial"),
+    file_name: str = Form(...),
+    file_size: int = Form(...),
+    article_id: int = Form(0),
+    current_peserta: dict[str, Any] = Depends(require_peserta),
+    supabase: Client = Depends(get_service_client),
+):
+    """Persiapan unggah: validasi file lalu terbitkan URL unggah Storage.
+
+    Validasi ekstensi dan ukuran dilakukan di sini supaya file yang pasti
+    ditolak tidak sempat diunggah sama sekali.
+    """
+    try:
+        if scope not in UPLOAD_SCOPES:
+            raise HTTPException(status_code=400, detail="Scope unggahan tidak dikenal")
+
+        normalized_name = (file_name or "").strip()
+        extension = _file_extension(normalized_name)
+        if extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="Format file harus PDF, DOC, atau DOCX")
+
+        size = int(file_size or 0)
+        if size <= 0:
+            raise HTTPException(status_code=400, detail="File artikel kosong")
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="Ukuran file maksimal 10 MB")
+
+        context = await _participant_context(supabase, current_peserta)
+        student_id = int(context["student"]["id"])
+
+        if scope == "revision":
+            if not article_id:
+                raise HTTPException(status_code=400, detail="article_id wajib diisi untuk unggah revisi")
+            # Pastikan artikel milik peserta, sama seperti pada endpoint commit.
+            await _assert_owned_article(supabase, current_peserta, int(article_id))
+            versions = context.get("versions_by_article", {}).get(int(article_id), [])
+            next_number = max([int(v["version_number"]) for v in versions], default=0) + 1
+            target_path = _storage_path(
+                student_id, int(article_id), next_number, normalized_name or "artikel"
+            )
+        else:
+            target_path = _pending_storage_path(student_id, normalized_name or "artikel")
+
+        upload = await asyncio.to_thread(_create_signed_upload_url, supabase, target_path)
+        return {
+            **upload,
+            "bucket": ARTICLE_STORAGE_BUCKET,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_supabase_error(exc, "Gagal menyiapkan unggahan artikel")
+        raise AssertionError("unreachable")
+
+
 @router.post("/articles/upload", response_model=dict[str, Any], status_code=status.HTTP_201_CREATED)
 async def upload_initial_article(
     participant_assignment_id: int = Form(...),
     title: str = Form(...),
     journal_id: int = Form(...),
     submission_note: str = Form(""),
-    file: UploadFile = File(...),
+    # Jalur A (lama): file dikirim sebagai multipart.
+    # Jalur B (baru): file sudah diunggah browser langsung ke Supabase
+    # Storage memakai signed upload URL, jadi hanya path-nya yang dikirim.
+    # Jalur B dipakai agar file besar tidak melewati batas payload platform
+    # hosting backend (Vercel membatasi body function ~4,5 MB).
+    file: UploadFile | None = File(default=None),
+    storage_path: str = Form(""),
+    file_name: str = Form(""),
+    file_size: int = Form(0),
     current_peserta: dict[str, Any] = Depends(require_peserta),
     supabase: Client = Depends(get_service_client),
 ):
@@ -1245,15 +1353,29 @@ async def upload_initial_article(
         if not journal or journal.get("is_active") is False:
             raise HTTPException(status_code=404, detail="Jurnal tidak ditemukan atau tidak aktif")
 
-        extension = _file_extension(file.filename)
+        # Validasi berlaku sama untuk kedua jalur masuk.
+        direct_path = (storage_path or "").strip()
+        if direct_path:
+            upload_name = (file_name or "").strip()
+            content: bytes | None = None
+            resolved_size = int(file_size or 0)
+            content_type = "application/octet-stream"
+        else:
+            if file is None:
+                raise HTTPException(status_code=400, detail="File artikel wajib diunggah")
+            upload_name = file.filename or ""
+            content = await file.read()
+            resolved_size = len(content)
+            content_type = file.content_type or "application/octet-stream"
+
+        extension = _file_extension(upload_name)
         if extension not in ALLOWED_EXTENSIONS:
             raise HTTPException(status_code=400, detail="Format file harus PDF, DOC, atau DOCX")
 
-        content = await file.read()
-        if not content:
+        if resolved_size <= 0:
             raise HTTPException(status_code=400, detail="File artikel kosong")
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail="Ukuran file maksimal 15 MB")
+        if resolved_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="Ukuran file maksimal 10 MB")
 
         project_row = (
             supabase.table("projects")
@@ -1291,25 +1413,33 @@ async def upload_initial_article(
             raise HTTPException(status_code=400, detail="Artikel gagal dibuat")
         article = article_row[0]
         article_id = int(article["id"])
-        storage_path = _storage_path(int(student["id"]), article_id, 1, file.filename or "artikel")
-
-        try:
-            _upload_storage_file(supabase, storage_path, content, file.content_type or "application/octet-stream")
-        except Exception:
-            supabase.table("articles").delete().eq("id", article_id).execute()
-            supabase.table("projects").delete().eq("id", project_id).execute()
-            raise
+        # Jalur langsung: file sudah berada di Storage, jadi tidak diunggah
+        # ulang dan path dari klien dipakai apa adanya. Struktur path tidak
+        # pernah di-parse di tempat lain (hanya menjadi kunci opaque untuk
+        # signed URL dan remove), sehingga aman disimpan langsung.
+        if direct_path:
+            final_path = direct_path
+            stored_file_name = upload_name
+        else:
+            stored_file_name = file.filename if file is not None else upload_name
+            final_path = _storage_path(int(student["id"]), article_id, 1, upload_name or "artikel")
+            try:
+                _upload_storage_file(supabase, final_path, content, content_type)
+            except Exception:
+                supabase.table("articles").delete().eq("id", article_id).execute()
+                supabase.table("projects").delete().eq("id", project_id).execute()
+                raise
 
         version_row = (
             supabase.table("article_versions")
             .insert({
                 "article_id": article_id,
                 "version_number": 1,
-                "file_name": file.filename,
-                "file_path": storage_path,
+                "file_name": stored_file_name,
+                "file_path": final_path,
                 "file_url": None,
                 "file_type": extension,
-                "file_size": len(content),
+                "file_size": resolved_size,
                 "uploaded_by": int(current_peserta["id"]),
                 "version_status": "submitted",
                 "submission_note": submission_note.strip() or None,
@@ -1319,7 +1449,7 @@ async def upload_initial_article(
             or []
         )
         if not version_row:
-            _delete_storage_file(supabase, storage_path)
+            _delete_storage_file(supabase, final_path)
             supabase.table("articles").delete().eq("id", article_id).execute()
             supabase.table("projects").delete().eq("id", project_id).execute()
             raise HTTPException(status_code=400, detail="Versi artikel gagal dibuat")
@@ -1390,7 +1520,12 @@ async def upload_initial_article(
 async def upload_revision(
     article_id: int,
     revision_note: str = Form(...),
-    file: UploadFile = File(...),
+    # Seperti upload_initial_article: multipart (lama) atau path hasil unggahan
+    # langsung browser ke Storage (baru).
+    file: UploadFile | None = File(default=None),
+    storage_path: str = Form(""),
+    file_name: str = Form(""),
+    file_size: int = Form(0),
     current_peserta: dict[str, Any] = Depends(require_peserta),
     supabase: Client = Depends(get_service_client),
 ):
@@ -1408,30 +1543,51 @@ async def upload_revision(
             if recommendation not in {"major revision", "minor revision"}:
                 raise HTTPException(status_code=400, detail="Artikel belum memiliki permintaan revisi aktif")
 
-        extension = _file_extension(file.filename)
+        # Validasi berlaku sama untuk kedua jalur masuk.
+        direct_path = (storage_path or "").strip()
+        if direct_path:
+            upload_name = (file_name or "").strip()
+            content: bytes | None = None
+            resolved_size = int(file_size or 0)
+            content_type = "application/octet-stream"
+        else:
+            if file is None:
+                raise HTTPException(status_code=400, detail="File revisi wajib diunggah")
+            upload_name = file.filename or ""
+            content = await file.read()
+            resolved_size = len(content)
+            content_type = file.content_type or "application/octet-stream"
+
+        extension = _file_extension(upload_name)
         if extension not in ALLOWED_EXTENSIONS:
             raise HTTPException(status_code=400, detail="Format file harus PDF, DOC, atau DOCX")
-        content = await file.read()
-        if not content:
+        if resolved_size <= 0:
             raise HTTPException(status_code=400, detail="File revisi kosong")
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail="Ukuran file maksimal 15 MB")
+        if resolved_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="Ukuran file maksimal 10 MB")
 
         versions = context.get("versions_by_article", {}).get(article_id, [])
         next_number = max([int(v["version_number"]) for v in versions], default=0) + 1
-        storage_path = _storage_path(int(student["id"]), article_id, next_number, file.filename or "artikel")
-        _upload_storage_file(supabase, storage_path, content, file.content_type or "application/octet-stream")
+        # Jalur langsung: file sudah berada di Storage pada path yang dibuat
+        # endpoint signed-url, jadi tidak diunggah ulang oleh backend.
+        if direct_path:
+            final_path = direct_path
+            stored_file_name = upload_name
+        else:
+            stored_file_name = file.filename if file is not None else upload_name
+            final_path = _storage_path(int(student["id"]), article_id, next_number, upload_name or "artikel")
+            _upload_storage_file(supabase, final_path, content, content_type)
 
         version_row = (
             supabase.table("article_versions")
             .insert({
                 "article_id": article_id,
                 "version_number": next_number,
-                "file_name": file.filename,
-                "file_path": storage_path,
+                "file_name": stored_file_name,
+                "file_path": final_path,
                 "file_url": None,
                 "file_type": extension,
-                "file_size": len(content),
+                "file_size": resolved_size,
                 "uploaded_by": int(current_peserta["id"]),
                 "version_status": "submitted",
                 "submission_note": revision_note.strip(),
@@ -1441,7 +1597,7 @@ async def upload_revision(
             or []
         )
         if not version_row:
-            _delete_storage_file(supabase, storage_path)
+            _delete_storage_file(supabase, final_path)
             raise HTTPException(status_code=400, detail="Versi revisi gagal dibuat")
         version = version_row[0]
 

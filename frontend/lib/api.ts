@@ -196,8 +196,32 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+// Batas sebenarnya berasal dari platform, bukan dari backend: Vercel menolak
+// body request Serverless Function di atas 4,5 MB dengan status 413 dan payload
+// "function_payload_too_large" SEBELUM request mencapai FastAPI. Tanpa
+// penerjemahan ini user membaca teks mentah platform yang sulit dipahami.
+const UPLOAD_TOO_LARGE_MESSAGE =
+  "Ukuran file terlalu besar untuk diunggah. Server membatasi sekitar 4,5 MB per file, " +
+  "jadi file ini ditolak sebelum diproses. Perkecil atau kompres file lalu coba lagi.";
+
+function isPayloadTooLarge(status: number, text: string): boolean {
+  if (status === 413) return true;
+
+  const lowered = text.toLowerCase();
+  return (
+    lowered.includes("function_payload_too_large") ||
+    lowered.includes("payload too large") ||
+    lowered.includes("request entity too large") ||
+    lowered.includes("entity too large")
+  );
+}
+
 async function parseError(response: Response): Promise<string> {
   const text = await response.text();
+
+  // Dicek lebih dulu karena respons 413 bisa saja tidak punya body.
+  if (isPayloadTooLarge(response.status, text)) return UPLOAD_TOO_LARGE_MESSAGE;
+
   if (!text) return `HTTP ${response.status}`;
 
   try {
@@ -561,6 +585,101 @@ async function prefetch(paths: string | string[]): Promise<void> {
   }
 }
 
+// ==========================================================================
+// Unggah file artikel langsung ke Supabase Storage
+// ==========================================================================
+// Byte file dikirim browser langsung ke Storage lewat signed upload URL yang
+// diterbitkan backend. File tidak pernah melewati API backend, sehingga batas
+// payload platform hosting (Vercel ~4,5 MB body function) tidak lagi membatasi
+// ukuran unggahan sampai MAX_FILE_SIZE backend.
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_UPLOAD_EXTENSIONS = ["pdf", "doc", "docx"];
+
+function uploadExtension(name: string): string {
+  const index = name.lastIndexOf(".");
+  return index < 0 ? "" : name.slice(index + 1).toLowerCase();
+}
+
+type SignedUploadInfo = {
+  upload_url: string;
+  token: string;
+  path: string;
+  bucket?: string;
+};
+
+async function uploadArticleFileDirect(
+  file: File,
+  scope: "initial" | "revision",
+  articleId?: number | string,
+): Promise<string> {
+  const name = file.name || "artikel";
+  const size = Number(file.size || 0);
+
+  // Ditolak di browser agar user tidak menunggu unggahan yang pasti gagal.
+  if (size <= 0) throw new ApiError("File artikel kosong", 400);
+  if (!ALLOWED_UPLOAD_EXTENSIONS.includes(uploadExtension(name))) {
+    throw new ApiError("Format file harus PDF, DOC, atau DOCX", 400);
+  }
+  if (size > MAX_UPLOAD_BYTES) {
+    throw new ApiError("Ukuran file maksimal 10 MB", 400);
+  }
+
+  const signedForm = new FormData();
+  signedForm.set("scope", scope);
+  signedForm.set("file_name", name);
+  signedForm.set("file_size", String(size));
+  if (articleId !== undefined && articleId !== null && String(articleId) !== "") {
+    signedForm.set("article_id", String(articleId));
+  }
+
+  const signed = await request<SignedUploadInfo>("/api/peserta/uploads/signed-url", {
+    method: "POST",
+    body: signedForm,
+    auth: true,
+    clientCache: "no-store",
+  });
+
+  if (!signed?.upload_url || !signed?.token || !signed?.path) {
+    throw new ApiError("Gagal menyiapkan unggahan file artikel", 502);
+  }
+
+  const { error } = await supabase.storage
+    .from(signed.bucket || "article-files")
+    .uploadToSignedUrl(signed.path, signed.token, file, {
+      contentType: file.type || "application/octet-stream",
+    });
+
+  if (error) {
+    throw new ApiError(error.message || "Gagal mengunggah file ke penyimpanan", 502);
+  }
+
+  return signed.path;
+}
+
+async function prepareArticleUpload(
+  form: FormData,
+  scope: "initial" | "revision",
+  articleId?: number | string,
+): Promise<FormData> {
+  const raw = form.get("file");
+
+  // Tidak ada file: teruskan apa adanya agar backend yang memvalidasi,
+  // persis seperti perilaku sebelumnya.
+  if (!(raw instanceof File) || raw.size === 0) return form;
+
+  const storagePath = await uploadArticleFileDirect(raw, scope, articleId);
+
+  const next = new FormData();
+  form.forEach((value, key) => {
+    if (key !== "file") next.set(key, value);
+  });
+  next.set("storage_path", storagePath);
+  next.set("file_name", raw.name || "artikel");
+  next.set("file_size", String(raw.size));
+  return next;
+}
+
 export const api = {
   getMe: () => request("/api/auth/me"),
 
@@ -588,15 +707,15 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
-    uploadInitialArticle: (form: FormData) =>
+    uploadInitialArticle: async (form: FormData) =>
       request("/api/peserta/articles/upload", {
         method: "POST",
-        body: form,
+        body: await prepareArticleUpload(form, "initial"),
       }),
-    uploadRevision: (articleId: number | string, form: FormData) =>
+    uploadRevision: async (articleId: number | string, form: FormData) =>
       request(`/api/peserta/articles/${articleId}/revisions`, {
         method: "POST",
-        body: form,
+        body: await prepareArticleUpload(form, "revision", articleId),
       }),
     downloadVersion: (articleId: number | string, versionId: number | string) =>
       request<{ url: string }>(
