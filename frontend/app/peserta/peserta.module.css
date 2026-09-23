@@ -95,8 +95,19 @@
 
 .navIcon {
     width: 18px;
-    text-align: center;
+    height: 18px;
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    opacity: .82;
+    transition: opacity .15s ease;
+}
+
+.nav:hover .navIcon,
+.navActive .navIcon {
+    opacity: 1;
 }
 
 .logout {
@@ -283,12 +294,31 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 7px;
     border: 0;
     border-radius: 8px;
-    padding: 9px 13px;
+    padding: 8px 14px;
+    font-size: 13px;
     font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
     cursor: pointer;
     text-decoration: none;
+    transition: filter .15s ease, background .15s ease;
+}
+
+.btn:hover:not(:disabled) {
+    filter: brightness(.96);
+}
+
+.btn:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+.btn:focus-visible {
+    outline: 2px solid var(--navy);
+    outline-offset: 2px;
 }
 
 .primary {
@@ -480,8 +510,46 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
-    margin-top: 18px;
+    margin-top: 20px;
+}
+
+.actionRowStart {
+    justify-content: flex-start;
+}
+
+/* Judul seksi di dalam panel: spasi atas konsisten tanpa style inline. */
+.sectionHead {
+    margin: 22px 0 10px;
+    font-size: 15px;
+    color: var(--navy);
+}
+
+/* Baris meta horizontal; otomatis turun jadi bertumpuk di layar sempit. */
+.metaRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.metaItem {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.metaItem strong {
+    color: var(--navy);
+    font-weight: 700;
 }
 
 .fileBox {
@@ -585,6 +653,7 @@
     .nav,
     .logout {
         justify-content: center;
+        gap: 0;
         padding: 11px 5px;
     }
 
@@ -609,5 +678,46 @@
     .infoGrid,
     .journalLinksGrid {
         grid-template-columns: 1fr;
+    }
+}
+
+@media(max-width:520px) {
+    .sidebar {
+        width: 66px;
+        padding: 16px 8px;
+    }
+
+    .main {
+        margin-left: 66px;
+        padding: 14px;
+    }
+
+    .title h1 {
+        font-size: 22px;
+    }
+
+    .panel,
+    .card {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    .articleHead {
+        padding: 14px;
+    }
+
+    /* Tombol jadi penuh satu baris supaya tidak berdesakan di layar kecil. */
+    .actionRow {
+        gap: 8px;
+        justify-content: stretch;
+        margin-top: 16px;
+    }
+
+    .actionRow .btn {
+        flex: 1 1 100%;
+    }
+
+    .metaRow {
+        gap: 6px;
     }
 }

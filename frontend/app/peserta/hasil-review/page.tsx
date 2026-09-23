@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "../../../lib/api";
 import type { ReviewResult } from "../types";
+import { Icon } from "../../../components/Icon";
 import styles from "../peserta.module.css";
 
 function formatDate(value?: string | null): string {
@@ -83,19 +84,26 @@ export default function HasilReviewPage() {
 
         <div className={styles.articleHead}>
           <h2>{article?.title}</h2>
-          <div className={styles.meta}>
-            Versi: {article?.current_version_number ? `v${article.current_version_number}` : "-"} · Reviewer: {reviewerName}
-            <br />Dikirim: {formatDate(article?.submitted_at)}
+          <div className={styles.metaRow}>
+            <span className={styles.metaItem}>
+              Versi <strong>{article?.current_version_number ? `v${article.current_version_number}` : "-"}</strong>
+            </span>
+            <span className={styles.metaItem}>
+              Reviewer <strong>{reviewerName}</strong>
+            </span>
+            <span className={styles.metaItem}>
+              Dikirim <strong>{formatDate(article?.submitted_at)}</strong>
+            </span>
           </div>
         </div>
 
         {review ? <>
           <div className={styles.notice}>
             <b>Rekomendasi: {recommendation}</b>
-            {message && <><br />{message}</>}
+            {message && <> · {message}</>}
           </div>
 
-          <h3 style={{ marginTop: 22 }}>Komentar untuk Penulis</h3>
+          <h3 className={styles.sectionHead}>Komentar untuk Penulis</h3>
           <div className={styles.reviewComment}>
             {review.comments_for_author || "Belum ada komentar untuk penulis."}
           </div>
@@ -107,6 +115,7 @@ export default function HasilReviewPage() {
                 className={`${styles.btn} ${styles.primary}`}
                 onClick={() => router.push("/peserta/upload-revisi")}
               >
+                <Icon name="upload" size={15} />
                 Upload Artikel Revisi
               </button>
             </div>

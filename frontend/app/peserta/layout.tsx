@@ -5,17 +5,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
+import { Icon, type IconName } from "../../components/Icon";
 import styles from "./peserta.module.css";
 
-const menu = [
-  ["/peserta", "Dashboard", "▣"],
-  ["/peserta/artikel", "Artikel Saya", "▤"],
-  ["/peserta/upload-artikel", "Upload Artikel", "↥"],
-  ["/peserta/hasil-review", "Hasil Review", "✎"],
-  ["/peserta/upload-revisi", "Upload Revisi", "↻"],
-  ["/peserta/riwayat", "Riwayat", "◷"],
-  ["/peserta/profil", "Profil", "◎"],
-] as const;
+const menu: ReadonlyArray<readonly [string, string, IconName]> = [
+  ["/peserta", "Dashboard", "dashboard"],
+  ["/peserta/artikel", "Artikel Saya", "articles"],
+  ["/peserta/upload-artikel", "Upload Artikel", "upload"],
+  ["/peserta/hasil-review", "Hasil Review", "review"],
+  ["/peserta/upload-revisi", "Upload Revisi", "revision"],
+  ["/peserta/riwayat", "Riwayat", "history"],
+  ["/peserta/profil", "Profil", "profile"],
+];
 
 export default function PesertaLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -94,11 +95,11 @@ export default function PesertaLayout({ children }: { children: React.ReactNode 
           <div className={styles.sideTitle}>Menu Peserta</div>
           {menu.map(([href, label, icon]) => {
             const active = href === "/peserta" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
-            return <Link key={href} href={href} className={active ? `${styles.nav} ${styles.navActive}` : styles.nav}>
-              <span className={styles.navIcon}>{icon}</span><span className={styles.navLabel}>{label}</span>
+            return <Link key={href} href={href} title={label} aria-label={label} aria-current={active ? "page" : undefined} className={active ? `${styles.nav} ${styles.navActive}` : styles.nav}>
+              <span className={styles.navIcon}><Icon name={icon} /></span><span className={styles.navLabel}>{label}</span>
             </Link>;
           })}
-          <button className={styles.logout} onClick={logout}><span className={styles.navIcon}>↪</span><span className={styles.logoutLabel}>Keluar</span></button>
+          <button className={styles.logout} onClick={logout} title="Keluar" aria-label="Keluar"><span className={styles.navIcon}><Icon name="logout" /></span><span className={styles.logoutLabel}>Keluar</span></button>
         </aside>
         <main className={styles.main}>
           <div className={styles.container}>{children}</div>
