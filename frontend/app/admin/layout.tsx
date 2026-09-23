@@ -5,23 +5,24 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, ApiError } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
+import { Icon, type IconName } from "../../components/Icon";
 import styles from "./admin.module.css";
 
-const menu = [
-  ["/admin", "Dashboard Monitoring", "▣"],
-  ["/admin/pengguna", "Pengguna", "◎"],
-  ["/admin/reviewer", "Reviewer", "♟"],
-  ["/admin/mata-kuliah", "Mata Kuliah", "▦"],
-  ["/admin/jurnal", "Jurnal", "▤"],
-  ["/admin/proyek", "Proyek", "▤"],
-  ["/admin/artikel", "Artikel", "▥"],
-  ["/admin/assignment-reviewer", "Assignment Reviewer", "⚑"],
-  ["/admin/monitoring-review", "Monitoring Review", "✎"],
-  ["/admin/peserta", "Peserta", "◉"],
-  ["/admin/pendamping", "Pendamping", "♙"],
-  ["/admin/laporan", "Laporan", "▦"],
-  ["/admin/pengaturan", "Pengaturan", "⚙"],
-] as const;
+const menu: ReadonlyArray<readonly [string, string, IconName]> = [
+  ["/admin", "Dashboard Monitoring", "dashboard"],
+  ["/admin/pengguna", "Pengguna", "profile"],
+  ["/admin/reviewer", "Reviewer", "review"],
+  ["/admin/mata-kuliah", "Mata Kuliah", "articles"],
+  ["/admin/jurnal", "Jurnal", "articles"],
+  ["/admin/proyek", "Proyek", "articles"],
+  ["/admin/artikel", "Artikel", "articles"],
+  ["/admin/assignment-reviewer", "Assignment Reviewer", "review"],
+  ["/admin/monitoring-review", "Monitoring Review", "history"],
+  ["/admin/peserta", "Peserta", "profile"],
+  ["/admin/pendamping", "Pendamping", "profile"],
+  ["/admin/laporan", "Laporan", "history"],
+  ["/admin/pengaturan", "Pengaturan", "dashboard"],
+];
 
 export default function AdminLayout({
   children,
@@ -234,14 +235,18 @@ export default function AdminLayout({
                     : styles.nav
                 }
               >
-                <span className={styles.navIcon}>{icon}</span>
+                <span className={styles.navIcon}>
+                  <Icon name={icon} />
+                </span>
                 <span className={styles.navLabel}>{label}</span>
               </Link>
             );
           })}
 
           <button className={styles.logout} onClick={logout}>
-            <span className={styles.navIcon}>↪</span>
+            <span className={styles.navIcon}>
+              <Icon name="logout" />
+            </span>
             <span className={styles.logoutLabel}>Keluar</span>
           </button>
         </aside>
