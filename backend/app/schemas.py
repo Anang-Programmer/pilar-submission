@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
@@ -301,3 +301,17 @@ class AdminDashboardOut(BaseModel):
     pending_assignments: int
     active_reviews: int
     revision_requests: int
+    total_journals: int
+    articles_accepted: int
+    articles_finalized: int
+    articles_ready_for_journal: int
+    articles_submitted_to_journal: int
+    articles_under_journal_review: int
+    articles_published: int
+    flow: dict[str, int]
+    status_distribution: list[dict[str, Any]]
+    journal_distribution: list[dict[str, Any]]
+    journal_submission_distribution: list[dict[str, Any]]
+    activity: list[dict[str, Any]]
+    reviewer_performance: list[dict[str, Any]]
+    progress: list[dict[str, Any]]

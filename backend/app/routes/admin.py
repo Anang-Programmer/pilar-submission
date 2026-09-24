@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 import csv
 import os
 import bcrypt
@@ -463,11 +463,13 @@ def dashboard(
     _: dict = Depends(require_admin),
     supabase: Client = Depends(get_service_client),
 ):
+    """Return the Admin dashboard as one aggregated, real-data response."""
+
     def count(table: str, column: str = "id") -> int:
         response = supabase.table(table).select(column, count="exact", head=True).execute()
         return int(response.count or 0)
 
-    # Semua query di bawah saling independen, jadi dijalankan bersamaan.
+    # Pull the workflow tables together. The expensive reads are independent.
     results = _run_parallel({
         "role_rows": lambda: (
             supabase.table("user_roles")
@@ -476,40 +478,415 @@ def dashboard(
             .data
             or []
         ),
-        "total_assignments": lambda: count("reviewer_assignments"),
-        "completed_assignments": lambda: count_with_status(
-            supabase, "reviewer_assignments", {"completed", "Completed", "Selesai"}
+        "projects": lambda: (
+            supabase.table("projects")
+            .select("id,status,created_at,submitted_at,updated_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
         ),
-        "total_users": lambda: count("users"),
-        "total_articles": lambda: count("articles"),
-        "total_projects": lambda: count("projects"),
-        "active_reviews": lambda: count_with_status(
-            supabase, "reviews", {"draft", "in_review", "Sedang Direview"}
+        "articles": lambda: (
+            supabase.table("articles")
+            .select("id,title,status,current_version_id,journal_id,created_at,submitted_at,finalized_at,updated_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
         ),
-        "revision_requests": lambda: count("revision_requests"),
+        "assignments": lambda: (
+            supabase.table("reviewer_assignments")
+            .select("id,article_id,article_version_id,reviewer_id,status,deadline,assigned_at,completed_at,created_at,updated_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "reviews": lambda: (
+            supabase.table("reviews")
+            .select("id,assignment_id,article_version_id,reviewer_id,recommendation,status,submitted_at,created_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "revision_requests": lambda: (
+            supabase.table("revision_requests")
+            .select("id,article_id,revision_round,status,created_at,completed_at")
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "journals": lambda: (
+            supabase.table("journals")
+            .select("id,name,sinta_level,is_active")
+            .order("name")
+            .execute()
+            .data
+            or []
+        ),
+        "journal_submissions": lambda: (
+            supabase.table("journal_submissions")
+            .select("id,article_id,journal_id,status,publication_verified,created_at,updated_at")
+            .order("updated_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "users": lambda: (
+            supabase.table("users")
+            .select("id,username")
+            .execute()
+            .data
+            or []
+        ),
+        "lecturers": lambda: (
+            supabase.table("lecturers")
+            .select("id,user_id,full_name")
+            .execute()
+            .data
+            or []
+        ),
     })
 
     role_rows = results["role_rows"]
-    users_by_role: dict[str, set[int]] = {"reviewer": set(), "peserta": set()}
+    peserta_ids: set[int] = set()
+    reviewer_ids: set[int] = set()
     for row in role_rows:
-        role = str((row.get("role") or {}).get("name", "")).lower()
-        user_id = row.get("user_id")
-        if role in users_by_role and user_id is not None:
-            users_by_role[role].add(int(user_id))
+        uid = row.get("user_id")
+        role = str((row.get("role") or {}).get("name") or "").strip().lower()
+        if uid is None:
+            continue
+        if role == "peserta":
+            peserta_ids.add(int(uid))
+        elif role == "reviewer":
+            reviewer_ids.add(int(uid))
 
-    total_assignments = int(results["total_assignments"])
-    completed_assignments = int(results["completed_assignments"])
+    projects = results["projects"]
+    articles = results["articles"]
+    assignments = results["assignments"]
+    reviews = results["reviews"]
+    revision_requests = results["revision_requests"]
+    journals = results["journals"]
+    journal_submissions = results["journal_submissions"]
+    users = results["users"]
+    lecturers = results["lecturers"]
+
+    article_map = {int(row["id"]): row for row in articles if row.get("id") is not None}
+    user_map = {int(row["id"]): str(row.get("username") or "Reviewer") for row in users if row.get("id") is not None}
+    lecturer_name_by_user = {
+        int(row["user_id"]): str(row.get("full_name") or user_map.get(int(row["user_id"]), "Reviewer"))
+        for row in lecturers
+        if row.get("user_id") is not None
+    }
+    journal_map = {int(row["id"]): row for row in journals if row.get("id") is not None}
+
+    # Current-version reviews only. Old v1 reviews must not affect dashboard v2 state.
+    current_version_ids = {
+        int(article["current_version_id"])
+        for article in articles
+        if article.get("current_version_id") is not None
+    }
+    current_reviews: dict[int, dict[str, Any]] = {}
+    for review in reviews:
+        version_id = review.get("article_version_id")
+        if version_id is None or int(version_id) not in current_version_ids:
+            continue
+        status = str(review.get("status") or "").strip().lower()
+        submitted = bool(review.get("submitted_at")) or status == "submitted"
+        if not submitted:
+            continue
+        key = int(version_id)
+        # Reviews arrive newest-first; keep the first submitted review per version.
+        if key not in current_reviews:
+            current_reviews[key] = review
+
+    assignments_by_article: dict[int, list[dict[str, Any]]] = {}
+    current_assigned_articles: set[int] = set()
+    for assignment in assignments:
+        aid = assignment.get("article_id")
+        if aid is None:
+            continue
+        aid = int(aid)
+        assignments_by_article.setdefault(aid, []).append(assignment)
+        article = article_map.get(aid)
+        current_version_id = article.get("current_version_id") if article else None
+        assigned_version_id = assignment.get("article_version_id")
+        if assigned_version_id is None or current_version_id is None or int(assigned_version_id) == int(current_version_id):
+            current_assigned_articles.add(aid)
+
+    active_revision_articles: set[int] = set()
+    for article in articles:
+        status = str(article.get("status") or "").strip().lower()
+        if status in {"revision", "revisi", "dalam revisi", "revision_requested", "revision_required"}:
+            active_revision_articles.add(int(article["id"]))
+    for row in revision_requests:
+        state = str(row.get("status") or "").strip().lower()
+        if state in {"open", "pending", "requested", "revision_required", "revision_requested", "revisi"} and row.get("article_id") is not None:
+            active_revision_articles.add(int(row["article_id"]))
+
+    reviewed_articles: set[int] = set()
+    accepted_articles: set[int] = set()
+    major_revision_articles: set[int] = set()
+    minor_revision_articles: set[int] = set()
+    for article in articles:
+        current_version_id = article.get("current_version_id")
+        if current_version_id is None:
+            continue
+        review = current_reviews.get(int(current_version_id))
+        if not review:
+            continue
+        aid = int(article["id"])
+        reviewed_articles.add(aid)
+        recommendation = str(review.get("recommendation") or "").strip().lower()
+        if recommendation in {"accept", "accepted", "diterima"}:
+            accepted_articles.add(aid)
+        elif "major" in recommendation:
+            major_revision_articles.add(aid)
+        elif "minor" in recommendation:
+            minor_revision_articles.add(aid)
+
+    finalized_articles = {
+        int(article["id"])
+        for article in articles
+        if article.get("finalized_at")
+        or str(article.get("status") or "").strip().lower() in {"final", "finalized", "selesai"}
+    }
+
+    submission_by_article: dict[int, dict[str, Any]] = {}
+    for row in journal_submissions:
+        aid = row.get("article_id")
+        if aid is None:
+            continue
+        aid = int(aid)
+        if aid not in submission_by_article:
+            submission_by_article[aid] = row
+
+    submitted_journal_articles = {
+        aid for aid, row in submission_by_article.items()
+        if str(row.get("status") or "").strip().lower() == "submitted"
+    }
+    under_review_journal_articles = {
+        aid for aid, row in submission_by_article.items()
+        if str(row.get("status") or "").strip().lower() == "under_review"
+    }
+    published_journal_articles = {
+        aid for aid, row in submission_by_article.items()
+        if str(row.get("status") or "").strip().lower() == "published"
+    }
+    ready_submit_articles = finalized_articles - set(submission_by_article)
+
+    # One article belongs to one current workflow status bucket for the donut.
+    status_distribution = {
+        "accepted": len(accepted_articles),
+        "major_revision": len(major_revision_articles - accepted_articles),
+        "minor_revision": len(minor_revision_articles - accepted_articles - major_revision_articles),
+        "in_review": len((current_assigned_articles - reviewed_articles) - active_revision_articles),
+    }
+    classified = (
+        set(accepted_articles)
+        | set(major_revision_articles)
+        | set(minor_revision_articles)
+        | set(current_assigned_articles - reviewed_articles)
+        | set(active_revision_articles)
+    )
+    status_distribution["submitted"] = max(len(articles) - len(classified), 0)
+
+    # Journal distribution.
+    journal_counts: dict[int, int] = {}
+    for article in articles:
+        journal_id = article.get("journal_id")
+        if journal_id is not None:
+            jid = int(journal_id)
+            journal_counts[jid] = journal_counts.get(jid, 0) + 1
+    journal_distribution = []
+    for jid, total in sorted(journal_counts.items(), key=lambda item: item[1], reverse=True):
+        journal = journal_map.get(jid, {})
+        journal_distribution.append({
+            "journal_id": jid,
+            "name": journal.get("name") or "Jurnal",
+            "sinta_level": journal.get("sinta_level"),
+            "count": total,
+        })
+    journal_distribution = journal_distribution[:7]
+
+    # Reviewer performance.
+    assignment_by_id = {int(row["id"]): row for row in assignments if row.get("id") is not None}
+    performance: dict[int, dict[str, int]] = {}
+    for assignment in assignments:
+        rid = assignment.get("reviewer_id")
+        if rid is None:
+            continue
+        rid = int(rid)
+        item = performance.setdefault(rid, {"assigned": 0, "reviewed": 0, "revision": 0, "accepted": 0, "pending": 0})
+        item["assigned"] += 1
+        state = str(assignment.get("status") or "").strip().lower()
+        if state not in {"completed", "selesai"}:
+            item["pending"] += 1
+
+    for review in reviews:
+        rid = review.get("reviewer_id")
+        if rid is None:
+            assignment = assignment_by_id.get(int(review["assignment_id"])) if review.get("assignment_id") is not None else None
+            rid = assignment.get("reviewer_id") if assignment else None
+        if rid is None:
+            continue
+        rid = int(rid)
+        item = performance.setdefault(rid, {"assigned": 0, "reviewed": 0, "revision": 0, "accepted": 0, "pending": 0})
+        state = str(review.get("status") or "").strip().lower()
+        if review.get("submitted_at") or state == "submitted":
+            item["reviewed"] += 1
+            recommendation = str(review.get("recommendation") or "").strip().lower()
+            if recommendation in {"accept", "accepted", "diterima"}:
+                item["accepted"] += 1
+            elif "revision" in recommendation or "revisi" in recommendation:
+                item["revision"] += 1
+
+    reviewer_performance = []
+    for rid, item in performance.items():
+        reviewer_performance.append({
+            "reviewer_id": rid,
+            "name": lecturer_name_by_user.get(rid, user_map.get(rid, "Reviewer")),
+            **item,
+        })
+    reviewer_performance.sort(key=lambda row: (row["reviewed"], row["assigned"]), reverse=True)
+    reviewer_performance = reviewer_performance[:6]
+
+    # Activity trend berdasarkan seluruh rentang data yang tersedia.
+    # Tidak lagi dibatasi 30 hari.
+    def day_key(value: Any) -> str | None:
+        if not value:
+            return None
+        raw = str(value)
+        return raw[:10] if len(raw) >= 10 else None
+
+    activity_dates: list[str] = []
+
+    for article in articles:
+        day = day_key(article.get("submitted_at") or article.get("created_at"))
+        if day:
+            activity_dates.append(day)
+
+    for review in reviews:
+        day = day_key(review.get("submitted_at"))
+        if day:
+            activity_dates.append(day)
+
+    # Version > 1 berarti ada upload revisi. Ambil seluruh histori revisi.
+    revision_rows = (
+        supabase.table("article_versions")
+        .select("id,version_number,uploaded_at")
+        .gt("version_number", 1)
+        .execute()
+        .data
+        or []
+    )
+
+    for version in revision_rows:
+        day = day_key(version.get("uploaded_at"))
+        if day:
+            activity_dates.append(day)
+
+    today = datetime.utcnow().date()
+    start_date = (
+        datetime.fromisoformat(min(activity_dates)).date()
+        if activity_dates
+        else today
+    )
+
+    days = [
+        (start_date + timedelta(days=i)).isoformat()
+        for i in range((today - start_date).days + 1)
+    ]
+
+    activity = {
+        day: {
+            "date": day,
+            "articles_in": 0,
+            "reviews_done": 0,
+            "revisions_in": 0,
+            "accepted": 0,
+        }
+        for day in days
+    }
+
+    for article in articles:
+        day = day_key(article.get("submitted_at") or article.get("created_at"))
+        if day in activity:
+            activity[day]["articles_in"] += 1
+
+    for review in reviews:
+        day = day_key(review.get("submitted_at"))
+        if day in activity and (
+            review.get("submitted_at")
+            or str(review.get("status") or "").strip().lower() == "submitted"
+        ):
+            activity[day]["reviews_done"] += 1
+            recommendation = str(
+                review.get("recommendation") or ""
+            ).strip().lower()
+            if recommendation in {"accept", "accepted", "diterima"}:
+                activity[day]["accepted"] += 1
+
+    for version in revision_rows:
+        day = day_key(version.get("uploaded_at"))
+        if day in activity:
+            activity[day]["revisions_in"] += 1
+
+    progress_items = [
+        {"key": "projects", "label": "Usulan Proyek PjBL", "value": len(projects)},
+        {"key": "articles", "label": "Artikel Masuk", "value": len(articles)},
+        {"key": "assigned", "label": "Di-assign Reviewer", "value": len(current_assigned_articles)},
+        {"key": "reviewed", "label": "Sudah Direview", "value": len(reviewed_articles)},
+        {"key": "revision", "label": "Revisi (Perbaikan)", "value": len(active_revision_articles)},
+        {"key": "accepted", "label": "Accepted", "value": len(accepted_articles)},
+        {"key": "ready_journal", "label": "Siap Submit ke Jurnal", "value": len(ready_submit_articles)},
+    ]
 
     return {
-        "total_users": int(results["total_users"]),
-        "total_reviewers": len(users_by_role["reviewer"]),
-        "total_peserta": len(users_by_role["peserta"]),
-        "total_articles": int(results["total_articles"]),
-        "total_projects": int(results["total_projects"]),
-        "pending_assignments": max(total_assignments - completed_assignments, 0),
-        "active_reviews": int(results["active_reviews"]),
-        "revision_requests": int(results["revision_requests"]),
+        "total_users": count("users"),
+        "total_reviewers": len(reviewer_ids),
+        "total_peserta": len(peserta_ids),
+        "total_articles": len(articles),
+        "total_projects": len(projects),
+        "pending_assignments": max(len(current_assigned_articles) - len(reviewed_articles), 0),
+        "active_reviews": max(len(current_assigned_articles - reviewed_articles - active_revision_articles), 0),
+        "revision_requests": len(active_revision_articles),
+        "total_journals": sum(1 for row in journals if row.get("is_active") is not False),
+        "articles_accepted": len(accepted_articles),
+        "articles_finalized": len(finalized_articles),
+        "articles_ready_for_journal": len(ready_submit_articles),
+        "articles_submitted_to_journal": len(submitted_journal_articles),
+        "articles_under_journal_review": len(under_review_journal_articles),
+        "articles_published": len(published_journal_articles),
+        "flow": {
+            "projects": len(projects),
+            "articles": len(articles),
+            "assigned": len(current_assigned_articles),
+            "reviewed": len(reviewed_articles),
+            "revision": len(active_revision_articles),
+            "accepted": len(accepted_articles),
+            "ready_journal": len(ready_submit_articles),
+        },
+        "status_distribution": [
+            {"key": "accepted", "label": "Accepted", "count": status_distribution["accepted"]},
+            {"key": "major_revision", "label": "Major Revision", "count": status_distribution["major_revision"]},
+            {"key": "minor_revision", "label": "Minor Revision", "count": status_distribution["minor_revision"]},
+            {"key": "in_review", "label": "Sedang Review", "count": status_distribution["in_review"]},
+            {"key": "submitted", "label": "Submitted", "count": status_distribution["submitted"]},
+        ],
+        "journal_distribution": journal_distribution,
+        "journal_submission_distribution": [
+            {"key": "submitted", "label": "Submitted ke Jurnal", "count": len(submitted_journal_articles)},
+            {"key": "under_review", "label": "Under Review", "count": len(under_review_journal_articles)},
+            {"key": "published", "label": "Published", "count": len(published_journal_articles)},
+        ],
+        "activity": list(activity.values()),
+        "reviewer_performance": reviewer_performance,
+        "progress": progress_items,
     }
+
 
 @router.get("/users", response_model=list[AdminUserListItem])
 def list_users(

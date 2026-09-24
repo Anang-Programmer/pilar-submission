@@ -645,3 +645,603 @@
         grid-template-columns: 1fr
     }
 }
+/* ============================================================
+   PILAR ADMIN DASHBOARD
+   ============================================================ */
+.dashboardPage {
+    min-width: 0;
+}
+
+.dashboardHeader {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: flex-start;
+    margin: 0 10px 14px;
+}
+
+.dashboardHeader h1 {
+    margin: 0 0 4px;
+    color: #103f79;
+    font-size: 27px;
+    font-weight: 800;
+}
+
+.dashboardHeader p {
+    margin: 0;
+    font-size: 12px;
+    color: #73849b;
+}
+
+.dashboardHeaderActions {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.dashboardPeriod {
+    min-width: 165px;
+    background: #fff;
+    border: 1px solid #dce6f1;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 10px;
+    color: #34506f;
+}
+
+.dashboardInfo,
+.dashboardError {
+    margin: 0 10px 12px;
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 11px;
+}
+
+.dashboardInfo {
+    color: #245f9d;
+    background: #edf6ff;
+    border: 1px solid #cce2fb;
+}
+
+.dashboardError {
+    color: #a93434;
+    background: #fff0f0;
+    border: 1px solid #ffcaca;
+}
+
+.dashboardKpis {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 9px;
+    margin: 0 10px 12px;
+}
+
+.dashboardMetric {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 12px 13px;
+    background: #fff;
+    border: 1px solid #dce6f1;
+    border-radius: 9px;
+    box-shadow: 0 2px 7px rgba(23, 63, 104, .06);
+}
+
+.dashboardMetricIcon {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: #e9f2ff;
+    color: #1c6dc8;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.dashboardMetric:nth-child(2) .dashboardMetricIcon { background: #efe6ff; }
+.dashboardMetric:nth-child(3) .dashboardMetricIcon { background: #fff0e6; }
+.dashboardMetric:nth-child(4) .dashboardMetricIcon { background: #dff8ed; }
+.dashboardMetric:nth-child(5) .dashboardMetricIcon { background: #fdeafa; }
+
+.dashboardMetricValue {
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 800;
+    color: #123b72;
+}
+
+.dashboardMetricLabel {
+    margin-top: 4px;
+    font-size: 10px;
+    line-height: 1.15;
+    color: #566d89;
+}
+
+.dashboardSectionCard {
+    margin: 0 10px 12px;
+    padding: 13px;
+    background: #fff;
+    border: 1px solid #dce6f1;
+    border-radius: 9px;
+    box-shadow: 0 2px 7px rgba(23, 63, 104, .06);
+}
+
+.dashboardSectionTitle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 12px;
+    color: #113e76;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.dashboardSectionTitle > span {
+    margin-left: auto;
+    color: #6f8299;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.dashboardFlow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 2px 0 4px;
+}
+
+.dashboardFlowItem {
+    min-width: 78px;
+    text-align: center;
+}
+
+.dashboardFlowCircle {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 19px;
+}
+
+.dashboardTone_blue { background: #dcecff; color: #2c78c7; }
+.dashboardTone_green { background: #d9f7ea; color: #26885b; }
+.dashboardTone_purple { background: #eee4ff; color: #7555c0; }
+.dashboardTone_orange { background: #fff0e6; color: #c9692c; }
+.dashboardTone_yellow { background: #fff5d7; color: #a87a13; }
+
+.dashboardFlowValue {
+    margin-top: 4px;
+    color: #123b72;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.dashboardFlowLabel {
+    color: #31527b;
+    font-size: 10px;
+    line-height: 1.25;
+}
+
+.dashboardArrow {
+    color: #6d96c6;
+    font-size: 22px;
+}
+
+.dashboardTwoCol {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 0 10px;
+}
+
+.dashboardTwoCol > .dashboardSectionCard {
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.dashboardStatusGrid {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 12px;
+    align-items: center;
+}
+
+.dashboardDonutWrap {
+    display: grid;
+    place-items: center;
+}
+
+.dashboardDonut {
+    width: 148px;
+    height: 148px;
+    border-radius: 50%;
+    padding: 20px;
+}
+
+.dashboardDonutHole {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #fff;
+    display: grid;
+    place-content: center;
+    text-align: center;
+}
+
+.dashboardDonutHole strong {
+    color: #123b72;
+    font-size: 23px;
+    line-height: 1;
+}
+
+.dashboardDonutHole span {
+    margin-top: 3px;
+    color: #687d96;
+    font-size: 10px;
+}
+
+.dashboardLegendList {
+    display: grid;
+    gap: 9px;
+}
+
+.dashboardLegendRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 10px;
+}
+
+.dashboardLegendLabel {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #425a75;
+}
+
+.dashboardLegendLabel i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: 0 0 10px;
+}
+
+.dashboardLegendRow strong {
+    color: #123b72;
+    white-space: nowrap;
+}
+
+.dashboardBars {
+    display: grid;
+    gap: 10px;
+    margin-top: 3px;
+}
+
+.dashboardBarRow {
+    display: grid;
+    grid-template-columns: 135px 1fr 24px;
+    gap: 6px;
+    align-items: center;
+    font-size: 9px;
+}
+
+.dashboardBarRow > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #34506f;
+}
+
+.dashboardBarTrack,
+.dashboardProgressTrack {
+    height: 17px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: #f0f4f9;
+}
+
+.dashboardBarTrack i,
+.dashboardProgressTrack i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: #4289df;
+}
+
+.dashboardBarRow:nth-child(2) .dashboardBarTrack i { background: #45bb8a; }
+.dashboardBarRow:nth-child(3) .dashboardBarTrack i { background: #ff813d; }
+.dashboardBarRow:nth-child(4) .dashboardBarTrack i { background: #f4bd35; }
+.dashboardBarRow:nth-child(5) .dashboardBarTrack i { background: #9a79e9; }
+.dashboardBarRow:nth-child(6) .dashboardBarTrack i { background: #77aeea; }
+.dashboardBarRow:nth-child(7) .dashboardBarTrack i { background: #ec8fb4; }
+
+.dashboardChartWrap {
+    position: relative;
+}
+
+.dashboardChart {
+    width: 100%;
+    height: 220px;
+    display: block;
+    background: linear-gradient(to bottom, transparent 24%, #e8eef6 25%, transparent 26%, transparent 49%, #e8eef6 50%, transparent 51%, transparent 74%, #e8eef6 75%, transparent 76%);
+    border-left: 1px solid #cbd8e7;
+    border-bottom: 1px solid #cbd8e7;
+}
+
+.dashboardChartLegend,
+.dashboardChartDates {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+}
+
+.dashboardChartLegend {
+    margin-top: 7px;
+    flex-wrap: wrap;
+    font-size: 9px;
+    color: #45607f;
+}
+
+.dashboardChartLegend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.dashboardChartLegend i {
+    width: 9px;
+    height: 9px;
+    display: inline-block;
+    border-radius: 50%;
+}
+
+.dashboardChartDates {
+    justify-content: space-between;
+    margin-top: 4px;
+    color: #7b8da1;
+    font-size: 9px;
+}
+
+.dashboardStageGrid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.dashboardStageCard {
+    min-height: 102px;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    border: 1px solid #dce7f2;
+    border-radius: 8px;
+    padding: 10px 8px;
+}
+
+.dashboardStageIcon {
+    color: #275f99;
+    font-size: 18px;
+}
+
+.dashboardStageCard strong {
+    margin-top: 3px;
+    color: #123b72;
+    font-size: 18px;
+}
+
+.dashboardStageCard span {
+    margin-top: 2px;
+    color: #45607f;
+    font-size: 9px;
+    line-height: 1.2;
+}
+
+.dashboardTableWrap {
+    overflow-x: auto;
+}
+
+.dashboardTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+}
+
+.dashboardTable th {
+    padding: 8px 6px;
+    background: #edf3f9;
+    color: #526b89;
+    text-align: center;
+}
+
+.dashboardTable td {
+    padding: 7px 6px;
+    border-bottom: 1px solid #e5edf5;
+    color: #294766;
+    text-align: center;
+}
+
+.dashboardTable td:first-child {
+    text-align: left;
+    font-weight: 700;
+    color: #173e6c;
+}
+
+.dashboardEmpty,
+.dashboardEmptyCell {
+    color: #73849b;
+    font-size: 10px;
+}
+
+.dashboardEmptyCell {
+    padding: 20px !important;
+    text-align: center !important;
+}
+
+.dashboardProgressList {
+    display: grid;
+    gap: 11px;
+}
+
+.dashboardProgressItem {
+    display: grid;
+    gap: 5px;
+}
+
+.dashboardProgressHead {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: #475b74;
+    font-size: 10px;
+}
+
+.dashboardProgressHead strong {
+    color: #123b72;
+}
+
+.dashboardProgressTrack {
+    height: 10px;
+}
+
+.dashboardProgressTrack i {
+    background: #3f89db;
+}
+
+.dashboardOutputGrid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+}
+
+.dashboardOutputGrid > div {
+    position: relative;
+    min-height: 84px;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    border: 1px solid #dce7f2;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.dashboardOutputGrid > div:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: -12px;
+    top: 30px;
+    color: #638bb7;
+    font-size: 17px;
+}
+
+.dashboardOutputGrid strong {
+    color: #123b72;
+    font-size: 18px;
+}
+
+.dashboardOutputGrid span {
+    margin-top: 4px;
+    color: #45607f;
+    font-size: 9px;
+    line-height: 1.2;
+}
+
+@media (max-width: 1100px) {
+    .dashboardKpis { grid-template-columns: repeat(3, 1fr); }
+    .dashboardOutputGrid { grid-template-columns: repeat(3, 1fr); }
+    .dashboardOutputGrid > div:nth-child(3)::after { display: none; }
+}
+
+@media (max-width: 850px) {
+    .dashboardTwoCol { grid-template-columns: 1fr; }
+    .dashboardKpis { grid-template-columns: repeat(2, 1fr); }
+    .dashboardStageGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 600px) {
+    .dashboardHeader { flex-direction: column; }
+    .dashboardHeaderActions { width: 100%; }
+    .dashboardPeriod { flex: 1; }
+    .dashboardKpis { grid-template-columns: 1fr 1fr; margin-left: 0; margin-right: 0; }
+    .dashboardSectionCard { margin-left: 0; margin-right: 0; }
+    .dashboardTwoCol { margin-left: 0; margin-right: 0; }
+    .dashboardFlow { justify-content: flex-start; }
+    .dashboardStatusGrid { grid-template-columns: 1fr; }
+    .dashboardOutputGrid { grid-template-columns: repeat(2, 1fr); }
+    .dashboardOutputGrid > div::after { display: none !important; }
+    .dashboardBarRow { grid-template-columns: 100px 1fr 20px; }
+}
+
+
+.dashboardSmallButton {
+    border: 1px solid #cfe0f1;
+    background: #f7fbff;
+    border-radius: 7px;
+    padding: 6px 10px;
+    font-size: 9px;
+    color: #2363a0;
+    cursor: pointer;
+}
+
+.dashboardActionList {
+    display: grid;
+    gap: 7px;
+}
+
+.dashboardActionItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 10px;
+    border: 1px solid transparent;
+}
+
+.dashboardActionItem span:first-child {
+    font-weight: 700;
+}
+
+.dashboardActionAmber {
+    background: #fff6e7;
+    border-color: #ffd9a4;
+    color: #9d6500;
+}
+
+.dashboardActionOrange {
+    background: #fff3e9;
+    border-color: #ffc9a7;
+    color: #bd5c19;
+}
+
+.dashboardActionBlue {
+    background: #eef6ff;
+    border-color: #c9e0ff;
+    color: #2466a9;
+}
+
+.dashboardActionGreen {
+    background: #eafaf2;
+    border-color: #c5eed9;
+    color: #238050;
+}
+
+.dashboardActionText {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboardMetricIcon svg,
+.dashboardFlowCircle svg {
+    display: block;
+}

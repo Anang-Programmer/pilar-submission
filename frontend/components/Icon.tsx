@@ -8,7 +8,13 @@ export type IconName =
   | "revision"
   | "history"
   | "profile"
-  | "logout";
+  | "logout"
+  | "project"
+  | "participants"
+  | "journal"
+  | "assignment"
+  | "checkCircle"
+  | "clock";
 
 const SHAPES: Record<IconName, ReactNode> = {
   dashboard: (
@@ -64,6 +70,51 @@ const SHAPES: Record<IconName, ReactNode> = {
       <path d="M9.5 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.5" />
       <path d="m15.5 16.5 4.5-4.5-4.5-4.5" />
       <path d="M20 12H9.5" />
+    </>
+  ),
+  project: (
+    <>
+      <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+      <path d="m4.5 7.5 7.5 4.25 7.5-4.25" />
+      <path d="M12 11.75V21" />
+    </>
+  ),
+  participants: (
+    <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
+      <path d="M16 11a2.75 2.75 0 1 0 0-5.5" />
+      <path d="M16 14.5a4.5 4.5 0 0 1 4.5 4.5" />
+    </>
+  ),
+  journal: (
+    <>
+      <path d="M6 4h11a2 2 0 0 1 2 2v14H8a2 2 0 0 1-2-2V4Z" />
+      <path d="M6 4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2" />
+      <path d="M9 8h6" />
+      <path d="M9 12h6" />
+      <path d="M9 16h4" />
+    </>
+  ),
+  assignment: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4.5V3.5h6v1" />
+      <path d="M8.5 10h7" />
+      <path d="M8.5 14h4" />
+      <path d="m14.5 14.5 1.5 1.5 3-3" />
+    </>
+  ),
+  checkCircle: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12 2.5 2.5L16 9" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
     </>
   ),
 };

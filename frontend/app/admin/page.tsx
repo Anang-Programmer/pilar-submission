@@ -1,161 +1,216 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { api } from "../../lib/api";
 import styles from "./admin.module.css";
+import { Icon } from "../../components/Icon";
 
-function Metric({ value, label }: { value: number | string; label: string }) {
+type DashboardData = {
+  total_projects: number;
+  total_articles: number;
+  total_peserta: number;
+  total_journals: number;
+  pending_assignments: number;
+  revision_requests: number;
+  articles_accepted: number;
+  articles_finalized: number;
+  articles_ready_for_journal: number;
+  articles_submitted_to_journal: number;
+  articles_under_journal_review: number;
+  articles_published: number;
+  flow: Record<string, number>;
+  status_distribution: Array<{ key: string; label: string; count: number }>;
+  journal_distribution: Array<{
+    journal_id: number;
+    name: string;
+    sinta_level?: string | null;
+    count: number;
+  }>;
+  journal_submission_distribution: Array<{ key: string; label: string; count: number }>;
+  activity: Array<{
+    date: string;
+    articles_in: number;
+    reviews_done: number;
+    revisions_in: number;
+    accepted: number;
+  }>;
+  reviewer_performance: Array<{
+    reviewer_id: number;
+    name: string;
+    assigned: number;
+    reviewed: number;
+    revision: number;
+    accepted: number;
+    pending: number;
+  }>;
+  progress: Array<{ key: string; label: string; value: number }>;
+};
+
+type ActivityKey = "articles_in" | "reviews_done" | "revisions_in" | "accepted";
+
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  accepted: { label: "Accepted", color: "#35b97b" },
+  major_revision: { label: "Major Revision", color: "#ff7130" },
+  minor_revision: { label: "Minor Revision", color: "#f8bd32" },
+  in_review: { label: "Sedang Review", color: "#3988e8" },
+  submitted: { label: "Submitted", color: "#9b79eb" },
+};
+
+const ACTIVITY_META: Record<ActivityKey, { label: string; color: string }> = {
+  articles_in: { label: "Artikel Masuk", color: "#2d82e8" },
+  reviews_done: { label: "Review Selesai", color: "#38b77c" },
+  revisions_in: { label: "Revisi Masuk", color: "#f57b35" },
+  accepted: { label: "Accepted", color: "#9b79eb" },
+};
+
+function Metric({ icon, value, label }: { icon: ComponentProps<typeof Icon>["name"]; value: number; label: string }) {
   return (
-    <div className={styles.card}>
-      <div className={styles.num}>{value}</div>
-      <div className={styles.label}>{label}</div>
+    <div className={styles.dashboardMetric}>
+      <div className={styles.dashboardMetricIcon}><Icon name={icon} size={19} /></div>
+      <div>
+        <div className={styles.dashboardMetricValue}>{value}</div>
+        <div className={styles.dashboardMetricLabel}>{label}</div>
+      </div>
     </div>
   );
 }
 
-function Progress({ label, value }: { label: string; value: number }) {
+function FlowStep({ icon, value, label, tone }: { icon: ComponentProps<typeof Icon>["name"]; value: number; label: string; tone: string }) {
   return (
-    <div className={styles.progress}>
-      <div className={styles.progressHead}>
-        <span>{label}</span>
-        <strong>{value}%</strong>
-      </div>
-      <div className={styles.progressBar}>
-        <i style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    <div className={styles.dashboardFlowItem}>
+      <div className={`${styles.dashboardFlowCircle} ${styles[`dashboardTone_${tone}`]}`}><Icon name={icon} size={21} /></div>
+      <div className={styles.dashboardFlowValue}>{value}</div>
+      <div className={styles.dashboardFlowLabel}>{label}</div>
+    </div>
+  );
+}
+
+function Donut({ data }: { data: DashboardData["status_distribution"] }) {
+  const total = data.reduce((sum, item) => sum + item.count, 0);
+  let cursor = 0;
+  const stops = data.map((item) => {
+    const meta = STATUS_META[item.key] || { label: item.label, color: "#94a3b8" };
+    const start = total ? (cursor / total) * 100 : 0;
+    cursor += item.count;
+    const end = total ? (cursor / total) * 100 : 0;
+    return `${meta.color} ${start}% ${end}%`;
+  });
+
+  return (
+    <div className={styles.dashboardDonutWrap}>
+      <div
+        className={styles.dashboardDonut}
+        style={{ background: `conic-gradient(${stops.join(",") || "#dbe5f0 0 100%"})` }}
+      >
+        <div className={styles.dashboardDonutHole}>
+          <strong>{total}</strong>
+          <span>Artikel</span>
+        </div>
       </div>
     </div>
   );
 }
 
+function ActivityChart({ data }: { data: DashboardData["activity"] }) {
+  const width = 700;
+  const height = 220;
+  const padX = 8;
+  const padY = 12;
+  const max = Math.max(
+    1,
+    ...data.flatMap((item) => [item.articles_in, item.reviews_done, item.revisions_in, item.accepted]),
+  );
+
+  const pointsFor = (key: ActivityKey) =>
+    data
+      .map((item, index) => {
+        const x = padX + (index * (width - padX * 2)) / Math.max(data.length - 1, 1);
+        const y = height - padY - ((item[key] / max) * (height - padY * 2));
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  return (
+    <div className={styles.dashboardChartWrap}>
+      <svg viewBox={`0 0 ${width} ${height}`} className={styles.dashboardChart} preserveAspectRatio="none" role="img" aria-label="Aktivitas PILAR berdasarkan seluruh rentang data">
+        {[0.25, 0.5, 0.75].map((ratio) => (
+          <line
+            key={ratio}
+            x1={0}
+            x2={width}
+            y1={height * ratio}
+            y2={height * ratio}
+            stroke="#e7edf4"
+            strokeWidth="1"
+          />
+        ))}
+        {(Object.keys(ACTIVITY_META) as ActivityKey[]).map((key) => (
+          <polyline
+            key={key}
+            points={pointsFor(key)}
+            fill="none"
+            stroke={ACTIVITY_META[key].color}
+            strokeWidth="3"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        ))}
+      </svg>
+      <div className={styles.dashboardChartLegend}>
+        {(Object.keys(ACTIVITY_META) as ActivityKey[]).map((key) => (
+          <span key={key}>
+            <i style={{ background: ACTIVITY_META[key].color }} />
+            {ACTIVITY_META[key].label}
+          </span>
+        ))}
+      </div>
+      <div className={styles.dashboardChartDates}>
+        <span>{data[0]?.date ? formatShortDate(data[0].date) : ""}</span>
+        <span>{data[Math.floor(data.length / 2)]?.date ? formatShortDate(data[Math.floor(data.length / 2)].date) : ""}</span>
+        <span>{data[data.length - 1]?.date ? formatShortDate(data[data.length - 1].date) : ""}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatShortDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  return date.toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("id-ID").format(value);
+}
 
 export default function AdminDashboardPage() {
-  const [dashboard, setDashboard] = useState<any>(null);
-  const [report, setReport] = useState<any>(null);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [recentActivities, setRecentActivities] = useState<any[]>([]);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let active = true;
 
-    async function load() {
-      setLoading(true);
-      setError("");
+    api.admin.dashboard()
+      .then((value: DashboardData) => {
+        if (active) setDashboard(value);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Gagal memuat dashboard.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
-      const results = await Promise.allSettled([
-        api.admin.dashboard(),
-        api.admin.reportSummary(),
-        api.admin.projects(),
-      ]);
-
-      if (!active) return;
-
-      const [dashboardResult, reportResult, projectsResult] = results;
-
-      if (dashboardResult.status === "fulfilled") {
-        setDashboard(dashboardResult.value);
-      }
-      if (reportResult.status === "fulfilled") {
-        setReport(reportResult.value);
-      }
-      if (projectsResult.status === "fulfilled") {
-        const value: any = projectsResult.value;
-        setProjects(Array.isArray(value) ? value : value?.items ?? []);
-      }
-      const rejected = results.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected"
-      );
-      if (rejected) {
-        setError(
-          rejected.reason instanceof Error
-            ? rejected.reason.message
-            : "Sebagian data dashboard gagal dimuat."
-        );
-      }
-
-      setLoading(false);
-
-      // Non-critical activity data loads after the main dashboard is already
-      // interactive, so it never delays the active page.
-      void api.admin.recentActivity()
-        .then((value: any) => {
-          if (!active) return;
-          setRecentActivities(Array.isArray(value) ? value : []);
-        })
-        .catch(() => {
-          // Activity is supplementary; keep the dashboard usable if it fails.
-        });
-    }
-
-    load();
     return () => {
       active = false;
     };
   }, []);
 
-  const totalProjects = Number(report?.total_projects ?? dashboard?.total_projects ?? 0);
-  const selectedProjects = Number(report?.selected_projects ?? 0);
-  const totalArticles = Number(report?.total_articles ?? dashboard?.total_articles ?? 0);
-  const totalReviewAssignments = Number(report?.total_review_assignments ?? 0);
-  const completedReviewAssignments = Number(report?.completed_review_assignments ?? 0);
-  const articlesFinalized = Number(report?.articles_finalized ?? 0);
-
-  const selectedProgress = totalProjects
-    ? Math.round((selectedProjects / totalProjects) * 100)
-    : 0;
-  const mentorshipProgress = Number(report?.mentorship_progress ?? 0);
-  const reviewProgress = totalReviewAssignments
-    ? Math.round((completedReviewAssignments / totalReviewAssignments) * 100)
-    : 0;
-  const finalProgress = totalArticles
-    ? Math.round((articlesFinalized / totalArticles) * 100)
-    : 0;
-
-  const formatDateTime = (value?: string) => {
-  if (!value) return "";
-
-  const hasTimezone = /Z|[+-]\d{2}:\d{2}$/.test(value);
-
-  const date = new Date(
-    hasTimezone ? value : `${value}Z`
+  const statusTotal = useMemo(
+    () => dashboard?.status_distribution?.reduce((sum, item) => sum + item.count, 0) || 0,
+    [dashboard],
   );
-
-  return date.toLocaleString("id-ID", {
-    timeZone: "Asia/Jakarta",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
-
-  const auditActionLabel = (action: string | undefined) => {
-    const labels: Record<string, string> = {
-      "reviewer_assignment.create": "Reviewer ditugaskan",
-      "reviewer_assignment.update": "Assignment reviewer diperbarui",
-      "reviewer_assignment.delete": "Assignment reviewer dihapus",
-      "project_selection.create": "Status seleksi proyek diperbarui",
-      "project_selection.update": "Status seleksi proyek diperbarui",
-      "project.update": "Proyek diperbarui",
-      "project.delete": "Proyek dihapus",
-      "article.create": "Artikel ditambahkan",
-      "article.update": "Artikel diperbarui",
-      "article.delete": "Artikel dihapus",
-      "mentorship_assignment.create": "Pendamping ditugaskan",
-      "mentorship_assignment.update": "Pendamping diperbarui",
-      "mentorship_assignment.delete": "Pendamping dihapus",
-      "review.start": "Reviewer mulai review",
-      "review.submit": "Review artikel dikirim",
-      "revision.request": "Revisi diminta",
-      "article.submit": "Artikel dikirim",
-      "article.revision_upload": "Revisi artikel diupload",
-      "article.finalize": "Artikel difinalisasi",
-    };
-    return labels[action || ""] || "Aktivitas diperbarui";
-  };
 
   async function exportReport() {
     try {
@@ -173,80 +228,231 @@ export default function AdminDashboardPage() {
     }
   }
 
+  const data = dashboard || {
+    total_projects: 0,
+    total_articles: 0,
+    total_peserta: 0,
+    total_journals: 0,
+    pending_assignments: 0,
+    revision_requests: 0,
+    articles_accepted: 0,
+    articles_finalized: 0,
+    articles_ready_for_journal: 0,
+    articles_submitted_to_journal: 0,
+    articles_under_journal_review: 0,
+    articles_published: 0,
+    flow: { projects: 0, articles: 0, assigned: 0, reviewed: 0, revision: 0, accepted: 0, ready_journal: 0 },
+    status_distribution: [],
+    journal_distribution: [],
+    journal_submission_distribution: [],
+    activity: [],
+    reviewer_performance: [],
+    progress: [],
+  };
+
   return (
-    <>
-      <div className={styles.titleRow}>
+    <div className={styles.dashboardPage}>
+      <div className={styles.dashboardHeader}>
         <div>
-          <h1>Dashboard Monitoring</h1>
-          <p>Monitoring terintegrasi Program PILAR PTIK 2026.</p>
+          <h1>Dashboard Monitoring PILAR PTIK 2026</h1>
+          <p>Program Inkubasi Luaran Akademik Berbasis Riset</p>
         </div>
-        <button className={`${styles.btn} ${styles.secondary}`} onClick={exportReport}>
-          Export Laporan
-        </button>
       </div>
 
-      {loading && <div className={styles.loadingBar}>Memperbarui data dashboard...</div>}
-      {error && (
-        <div className={styles.error}>
-          <span>{error}</span>
-          <button className={styles.btn} onClick={() => setError("")}>×</button>
-        </div>
-      )}
+      {loading && <div className={styles.dashboardInfo}>Memperbarui data dashboard...</div>}
+      {error && <div className={styles.dashboardError}>{error}</div>}
 
-      <div className={`${styles.cards} ${styles.six}`}>
-        <Metric value={dashboard?.total_projects ?? 0} label="Usulan Proyek" />
-        <Metric value={selectedProjects} label="Proyek Terpilih" />
-        <Metric value={dashboard?.total_peserta ?? 0} label="Peserta" />
-        <Metric value={dashboard?.total_articles ?? 0} label="Artikel Masuk" />
-        <Metric value={report?.articles_waiting_assignment ?? 0} label="Belum Di-assign" />
-        <Metric value={report?.articles_in_review ?? 0} label="Sedang Direview" />
-      </div>
+      <section className={styles.dashboardKpis}>
+        <Metric icon="project" value={data.total_projects} label="Usulan Proyek PjBL" />
+        <Metric icon="articles" value={data.total_articles} label="Artikel Masuk" />
+        <Metric icon="participants" value={data.total_peserta} label="Peserta (Tim)" />
+        <Metric icon="checkCircle" value={data.articles_accepted} label="Artikel Diterima" />
+        <Metric icon="journal" value={data.total_journals} label="Jurnal Target" />
+      </section>
 
-      <div className={styles.grid2}>
-        <section className={styles.panel}>
-          <h3 className={styles.panelTitle}>Progress Tahapan PILAR</h3>
-          <Progress label="Inventarisasi Hasil Proyek" value={projects.length ? 100 : 0} />
-          <Progress label="Seleksi Hasil Proyek" value={selectedProgress} />
-          <Progress label="Review Internal" value={reviewProgress} />
-          <Progress label="Finalisasi Artikel" value={finalProgress} />
-        </section>
-
-        <section className={styles.panel}>
-          <h3 className={styles.panelTitle}>Perlu Perhatian</h3>
-          <div className={styles.alert}>
-            <strong>{report?.articles_waiting_assignment ?? 0} artikel</strong> belum memiliki reviewer.
-          </div>
-          <div className={styles.alert}>
-            <strong>{report?.articles_in_revision ?? 0} artikel</strong> sedang dalam revisi.
-          </div>
-          <a className={`${styles.btn} ${styles.primary}`} href="/admin/assignment-reviewer">
-            Kelola Assignment
-          </a>
-        </section>
-      </div>
-
-      <section className={styles.panel}>
-        <h3 className={styles.panelTitle}>Aktivitas Terbaru</h3>
-        <div className={styles.activity}>
-          {recentActivities.map((activity: any) => (
-            <div className={styles.activityItem} key={activity.id}>
-              <strong>{auditActionLabel(activity.action)}</strong>
-              {activity.description ? ` — ${activity.description}` : ""}
-              <small>
-                {formatDateTime(activity.created_at)}
-                {/* {activity.created_at
-                  ? new Date(activity.created_at).toLocaleString("id-ID")
-                  : ""} */}
-              </small>
-            </div>
-          ))}
-
-          {!recentActivities.length && (
-            <div className={styles.empty}>Belum ada aktivitas tercatat.</div>
-          )}
+      <section className={styles.dashboardSectionCard}>
+        <div className={styles.dashboardSectionTitle}>Alur Proses PILAR</div>
+        <div className={styles.dashboardFlow}>
+          <FlowStep icon="project" value={data.flow.projects} label="Usulan Proyek PjBL" tone="blue" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="articles" value={data.flow.articles} label="Artikel Masuk" tone="purple" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="assignment" value={data.flow.assigned} label="Di-assign Reviewer" tone="orange" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="review" value={data.flow.reviewed} label="Sudah Direview" tone="yellow" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="revision" value={data.flow.revision} label="Revisi (Perbaikan)" tone="blue" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="checkCircle" value={data.flow.accepted} label="Accepted" tone="green" />
+          <span className={styles.dashboardArrow}>→</span>
+          <FlowStep icon="upload" value={data.flow.ready_journal} label="Siap Submit ke Jurnal" tone="purple" />
         </div>
       </section>
 
-    </>
+      <section className={styles.dashboardTwoCol}>
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>Distribusi Status Artikel</div>
+          <div className={styles.dashboardStatusGrid}>
+            <Donut data={data.status_distribution} />
+            <div className={styles.dashboardLegendList}>
+              {data.status_distribution.map((item) => {
+                const meta = STATUS_META[item.key] || { label: item.label, color: "#94a3b8" };
+                const percentage = statusTotal ? Math.round((item.count / statusTotal) * 100) : 0;
+                return (
+                  <div className={styles.dashboardLegendRow} key={item.key}>
+                    <span className={styles.dashboardLegendLabel}>
+                      <i style={{ background: meta.color }} />
+                      {meta.label}
+                    </span>
+                    <strong>{formatNumber(item.count)} ({percentage}%)</strong>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>Distribusi Artikel per Jurnal</div>
+          <div className={styles.dashboardBars}>
+            {data.journal_distribution.length ? data.journal_distribution.map((item, index) => {
+              const max = Math.max(...data.journal_distribution.map((journal) => journal.count), 1);
+              return (
+                <div className={styles.dashboardBarRow} key={item.journal_id}>
+                  <span title={item.name}>
+                    {item.name}{item.sinta_level ? ` (${item.sinta_level.toUpperCase()})` : ""}
+                  </span>
+                  <div className={styles.dashboardBarTrack}>
+                    <i style={{ width: `${(item.count / max) * 100}%` }} />
+                  </div>
+                  <strong>{item.count}</strong>
+                </div>
+              );
+            }) : <div className={styles.dashboardEmpty}>Belum ada artikel dengan jurnal target.</div>}
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.dashboardTwoCol}>
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>
+            Aktivitas PILAR
+            <span>
+              {data.activity.length > 0
+                ? `${formatShortDate(data.activity[0].date)} - ${formatShortDate(
+                    data.activity[data.activity.length - 1].date,
+                  )}`
+                : "Belum ada aktivitas"}
+            </span>
+          </div>
+          <ActivityChart data={data.activity} />
+        </div>
+
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>
+            <div>Perlu Tindakan</div>
+            
+          </div>
+
+          <div className={styles.dashboardActionList}>
+            <div className={`${styles.dashboardActionItem} ${styles.dashboardActionAmber}`}>
+              <span className={styles.dashboardActionText}>
+                <Icon name="clock" size={16} /> {data.pending_assignments} artikel menunggu review
+              </span>
+            
+            </div>
+
+            <div className={`${styles.dashboardActionItem} ${styles.dashboardActionOrange}`}>
+              <span className={styles.dashboardActionText}>
+                <Icon name="revision" size={16} /> {data.revision_requests} artikel menunggu revisi peserta
+              </span>
+             
+            </div>
+
+            <div className={`${styles.dashboardActionItem} ${styles.dashboardActionBlue}`}>
+              <span className={styles.dashboardActionText}>
+                <Icon name="assignment" size={16} /> {Math.max(data.total_articles - data.flow.assigned, 0)} artikel belum di-assign reviewer
+              </span>
+              
+            </div>
+
+            <div className={`${styles.dashboardActionItem} ${styles.dashboardActionGreen}`}>
+              <span className={styles.dashboardActionText}>
+                <Icon name="upload" size={16} /> {data.articles_ready_for_journal} artikel siap disubmit ke jurnal
+              </span>
+              
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.dashboardTwoCol}>
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>Kinerja Reviewer</div>
+          <div className={styles.dashboardTableWrap}>
+            <table className={styles.dashboardTable}>
+              <thead>
+                <tr>
+                  <th>Reviewer</th>
+                  <th>Assigned</th>
+                  <th>Reviewed</th>
+                  <th>Revisi</th>
+                  <th>Accepted</th>
+                  <th>Pending</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.reviewer_performance.map((reviewer) => (
+                  <tr key={reviewer.reviewer_id}>
+                    <td>{reviewer.name}</td>
+                    <td>{reviewer.assigned}</td>
+                    <td>{reviewer.reviewed}</td>
+                    <td>{reviewer.revision}</td>
+                    <td>{reviewer.accepted}</td>
+                    <td>{reviewer.pending}</td>
+                  </tr>
+                ))}
+                {!data.reviewer_performance.length && (
+                  <tr><td colSpan={6} className={styles.dashboardEmptyCell}>Belum ada data reviewer.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className={styles.dashboardSectionCard}>
+          <div className={styles.dashboardSectionTitle}>Progress Tahapan PILAR</div>
+          <div className={styles.dashboardProgressList}>
+            {data.progress.map((item) => {
+              const denominator = item.key === "projects" ? Math.max(data.flow.projects, 1) : Math.max(data.total_articles, 1);
+              const percentage = item.key === "projects" ? 100 : Math.min(100, Math.round((item.value / denominator) * 100));
+              return (
+                <div className={styles.dashboardProgressItem} key={item.key}>
+                  <div className={styles.dashboardProgressHead}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                  <div className={styles.dashboardProgressTrack}>
+                    <i style={{ width: `${percentage}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.dashboardSectionCard}>
+        <div className={styles.dashboardSectionTitle}>Luaran Akademik</div>
+        <div className={styles.dashboardOutputGrid}>
+          <div><strong>{data.total_articles}</strong><span>Artikel Masuk</span></div>
+          <div><strong>{data.articles_accepted}</strong><span>Accepted</span></div>
+          <div><strong>{data.articles_ready_for_journal}</strong><span>Siap Submit</span></div>
+          <div><strong>{data.articles_submitted_to_journal}</strong><span>Submitted ke Jurnal</span></div>
+          <div><strong>{data.articles_under_journal_review}</strong><span>Under Review</span></div>
+          <div><strong>{data.articles_published}</strong><span>Published (DOI)</span></div>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Dashboard Monitoring PILAR PTIK 2026</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:#eef3f9;color:#123b72}
+:root{--navy:#08366f;--blue:#1775e5;--green:#35b97b;--orange:#ff7a32;--yellow:#f8bd32;--purple:#9b79eb;--red:#ef4444;--muted:#667892;--border:#dce6f1}
+.app{display:flex;min-height:100vh}.sidebar{width:142px;background:linear-gradient(180deg,#073b78,#062d5e);color:#fff;padding:12px 9px;position:fixed;top:0;bottom:0}
+.brand{height:58px;display:flex;gap:8px;align-items:center;padding:4px}.brandbox{width:38px;height:38px;border-radius:9px;background:#fff;color:#0a3a76;display:grid;place-items:center;font-weight:900;font-size:24px}.brand b{font-size:15px;line-height:1.05}.brand small{font-size:8px;display:block;margin-top:3px;opacity:.8}
+.nav{margin-top:10px}.nav a{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;padding:11px 8px;border-radius:7px;font-size:11px;margin:2px 0}.nav a.active{background:rgba(44,137,237,.42)}.nav .ico{width:18px;text-align:center;font-size:14px}
+main{margin-left:142px;width:calc(100% - 142px);padding:14px 16px 30px}.top{display:flex;justify-content:space-between;align-items:flex-start;margin:0 10px 12px}.top h1{font-size:25px;margin:0 0 3px;color:#103f79}.top p{font-size:12px;color:#73849b;margin:0}.select{background:#fff;border:1px solid var(--border);border-radius:7px;padding:10px 14px;font-size:10px;color:#34506f;min-width:165px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin:0 10px 12px}.kpi{background:#fff;border:1px solid var(--border);border-radius:9px;padding:11px 13px;box-shadow:0 2px 7px #173f6810;display:flex;align-items:center;gap:10px}.ki{width:37px;height:37px;border-radius:9px;display:grid;place-items:center;font-size:18px;background:#e9f2ff}.kpi:nth-child(2) .ki{background:#dff8ed}.kpi:nth-child(3) .ki{background:#e9f2ff}.kpi:nth-child(4) .ki{background:#f0e9ff}.kpi:nth-child(5) .ki{background:#fdeafa}.kpi .num{font-size:24px;font-weight:800;line-height:1}.kpi .lbl{font-size:10px;color:#566d89;margin-top:4px}
+.card{background:#fff;border:1px solid var(--border);border-radius:9px;padding:13px;box-shadow:0 2px 7px #173f6810}.title{font-size:16px;font-weight:800;color:#113e76;margin:0 0 12px}.section{margin:0 10px 12px}
+.flow{display:flex;align-items:center;justify-content:space-between}.flowitem{text-align:center;min-width:76px}.circle{width:48px;height:48px;margin:auto;border-radius:50%;display:grid;place-items:center;font-size:20px}.cblue{background:#dcecff}.cgreen{background:#d9f7ea}.cpurple{background:#eee4ff}.corange{background:#fff0e6}.cyellow{background:#fff5d7}.flow .arrow{font-size:22px;color:#6d96c6}.flow .n{font-size:16px;font-weight:800;margin-top:4px}.flow .t{font-size:10px;line-height:1.25;color:#31527b}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}.statusgrid{display:grid;grid-template-columns:170px 1fr;gap:10px;align-items:center}.donut{width:150px;height:150px;border-radius:50%;background:conic-gradient(#3bc184 0 45.45%,#ff7130 45.45% 72.72%,#f8bd32 72.72% 78.78%,#3988e8 78.78% 81.81%,#9b79eb 81.81% 100%);position:relative;margin:auto}.donut:after{content:"";position:absolute;inset:39px;background:#fff;border-radius:50%}.donutlabel{position:absolute;z-index:2;inset:0;display:grid;place-content:center;text-align:center;color:#123b72;font-weight:800;font-size:23px}.donutlabel span{font-size:10px;font-weight:500}
+.legend{display:grid;gap:10px}.leg{display:flex;align-items:center;justify-content:space-between;font-size:10px}.leg .left{display:flex;align-items:center;gap:8px}.dot{width:10px;height:10px;border-radius:50%}
+.bars{display:grid;gap:10px;margin-top:7px}.brow{display:grid;grid-template-columns:105px 1fr 22px;gap:6px;align-items:center;font-size:9px}.track{height:18px;background:#f0f4f9;border-radius:3px;overflow:hidden}.fill{height:100%;border-radius:3px}.activity{height:170px;position:relative;background:linear-gradient(to bottom,transparent 24%,#e8eef6 25%,transparent 26%,transparent 49%,#e8eef6 50%,transparent 51%,transparent 74%,#e8eef6 75%,transparent 76%);border-left:1px solid #cbd8e7;border-bottom:1px solid #cbd8e7;margin-top:3px}.line{position:absolute;left:4%;right:2%;top:24%;height:1px;background:transparent}.spark{width:100%;height:100%}.deadline{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center}.deadline .donut{background:conic-gradient(#35b97b 0 55%,#f8bd32 55% 76%,#ef4444 76% 100%)}.reviewtable{width:100%;border-collapse:collapse;font-size:9px}.reviewtable th{background:#edf3f9;color:#526b89;padding:8px;text-align:center}.reviewtable td{padding:7px 6px;border-bottom:1px solid #e5edf5;text-align:center}.reviewtable td:first-child{text-align:left}.avatar{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;color:#fff;font-weight:800;margin-right:5px}.a1{background:#287de1}.a2{background:#35b97b}.a3{background:#ff6e2e}.a4{background:#855be5}
+.actions{display:grid;gap:7px}.act{display:flex;align-items:center;justify-content:space-between;border-radius:8px;padding:8px 10px;font-size:10px;border:1px solid transparent}.act span{font-weight:700}.red{background:#fff0f0;border-color:#ffcaca;color:#c93636}.amber{background:#fff6e7;border-color:#ffd9a4;color:#9d6500}.orange{background:#fff3e9;border-color:#ffc9a7;color:#bd5c19}.blue{background:#eef6ff;border-color:#c9e0ff;color:#2466a9}.green{background:#eafaf2;border-color:#c5eed9;color:#238050}.smallbtn{font-size:9px;padding:6px 10px;border:1px solid #cfe0f1;background:#f7fbff;border-radius:7px;color:#2363a0}
+.attention table{width:100%;border-collapse:collapse;font-size:9px}.attention th{background:#edf3f9;padding:8px;text-align:left;color:#516b88}.attention td{padding:8px;border-bottom:1px solid #e4ecf4}.tag{display:inline-block;border-radius:6px;padding:4px 7px;font-weight:700;font-size:8px}.major{background:#ffe5e4;color:#d73a35}.minor{background:#fff2d4;color:#ad7100}.review{background:#e5f0ff;color:#2c6db5}.submitted{background:#f0e6ff;color:#7044bd}.late{background:#ffe3e3;color:#d22d2d}.soon{background:#fff1d2;color:#9a6900}.one{background:#e6f2ff;color:#286ca7}
+.output{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.out{border:1px solid #dce7f2;border-radius:8px;padding:10px;text-align:center;position:relative}.out:not(:last-child):after{content:"→";position:absolute;right:-12px;top:35px;color:#638bb7;font-size:18px}.out .oi{font-size:18px}.out .on{font-size:18px;font-weight:800;margin-top:3px}.out .ot{font-size:9px;color:#45607f;line-height:1.2;margin-top:2px}
+@media(max-width:1000px){.sidebar{width:112px}.brand b{font-size:12px}.nav a{font-size:9px}.nav .ico{font-size:12px}.app main{margin-left:112px;width:calc(100% - 112px)}.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.sidebar{display:none}main{margin-left:0!important;width:100%!important;padding:10px}.top{flex-direction:column;gap:10px}.kpis{grid-template-columns:repeat(2,1fr);margin:0 0 10px}.section{margin-left:0;margin-right:0}.cols{grid-template-columns:1fr}.flow{overflow-x:auto;justify-content:flex-start;gap:6px}.flow .arrow{min-width:15px}.statusgrid,.deadline{grid-template-columns:1fr}.output{grid-template-columns:repeat(3,1fr)}.out:nth-child(3n):after{display:none}.top h1{font-size:21px}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><div class="brandbox">P</div><div><b>PILAR<br>PTIK 2026</b><small>Monitoring</small></div></div>
+  <nav class="nav">
+    <a class="active"><span class="ico">⌂</span>Dashboard</a>
+    <a><span class="ico">▣</span>Monitoring Review</a><a><span class="ico">♙</span>Peserta</a>
+    <a><span class="ico">▣</span>Reviewer</a><a><span class="ico">▤</span>Mata Kuliah</a>
+    <a><span class="ico">▣</span>Jurnal</a><a><span class="ico">▣</span>Proyek</a>
+    <a><span class="ico">▤</span>Artikel</a><a><span class="ico">⇄</span>Assignment Reviewer</a>
+    <a><span class="ico">▥</span>Laporan</a><a><span class="ico">⚙</span>Pengaturan</a>
+  </nav>
+</aside>
+<main>
+  <header class="top"><div><h1>Dashboard Monitoring PILAR PTIK 2026</h1><p>Program Inkubasi Luaran Akademik Berbasis Riset</p></div><div class="select">▣ &nbsp; Semua Periode &nbsp;⌄</div></header>
+
+  <section class="kpis">
+    <div class="kpi"><div class="ki">▰</div><div><div class="num">38</div><div class="lbl">Usulan Proyek PjBL</div></div></div>
+    <div class="kpi"><div class="ki">✓</div><div><div class="num">33</div><div class="lbl">Proyek Terpilih</div></div></div>
+    <div class="kpi"><div class="ki">♟</div><div><div class="num">30</div><div class="lbl">Peserta (Tim)</div></div></div>
+    <div class="kpi"><div class="ki">▤</div><div><div class="num">33</div><div class="lbl">Artikel Masuk</div></div></div>
+    <div class="kpi"><div class="ki">▥</div><div><div class="num">7</div><div class="lbl">Jurnal Target</div></div></div>
+  </section>
+
+  <section class="section card">
+    <h2 class="title">Alur Proses PILAR</h2>
+    <div class="flow">
+      <div class="flowitem"><div class="circle cblue">▰</div><div class="n">38</div><div class="t">Usulan<br>Proyek PjBL</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cgreen">✓</div><div class="n">33</div><div class="t">Proyek<br>Terpilih</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cpurple">▤</div><div class="n">33</div><div class="t">Artikel<br>Disusun</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle corange">♟</div><div class="n">33</div><div class="t">Di-assign<br>Reviewer</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cyellow">⌕</div><div class="n">25</div><div class="t">Sudah<br>Direview</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cblue">☑</div><div class="n">22</div><div class="t">Revisi<br>(Perbaikan)</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cgreen">✓</div><div class="n">15</div><div class="t">Accepted</div></div><div class="arrow">→</div>
+      <div class="flowitem"><div class="circle cpurple">↥</div><div class="n">15</div><div class="t">Siap Submit<br>ke Jurnal</div></div>
+    </div>
+  </section>
+
+  <section class="section cols">
+    <div class="card"><h2 class="title">Distribusi Status Artikel</h2>
+      <div class="statusgrid"><div class="donut"><div class="donutlabel">33<span>Artikel</span></div></div>
+      <div class="legend">
+        <div class="leg"><span class="left"><i class="dot" style="background:#3bc184"></i>Accepted</span><b>15 (45%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#ff7130"></i>Major Revision</span><b>9 (27%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#f8bd32"></i>Minor Revision</span><b>2 (6%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#3988e8"></i>Sedang Review</span><b>1 (3%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#9b79eb"></i>Submitted</span><b>6 (18%)</b></div>
+      </div></div>
+    </div>
+    <div class="card"><h2 class="title">Distribusi Artikel per Jurnal <button class="smallbtn" style="float:right">Semua Jurnal⌄</button></h2>
+      <div class="bars">
+        <div class="brow"><span>Jurnal A (SINTA 2)</span><div class="track"><div class="fill" style="width:100%;background:#4289df"></div></div><b>8</b></div>
+        <div class="brow"><span>Jurnal B (SINTA 3)</span><div class="track"><div class="fill" style="width:75%;background:#45bb8a"></div></div><b>6</b></div>
+        <div class="brow"><span>Jurnal C (SINTA 3)</span><div class="track"><div class="fill" style="width:62.5%;background:#ff813d"></div></div><b>5</b></div>
+        <div class="brow"><span>Jurnal D (SINTA 4)</span><div class="track"><div class="fill" style="width:50%;background:#f4bd35"></div></div><b>4</b></div>
+        <div class="brow"><span>Jurnal E (SINTA 4)</span><div class="track"><div class="fill" style="width:37.5%;background:#9a79e9"></div></div><b>3</b></div>
+        <div class="brow"><span>Jurnal F (SINTA 5)</span><div class="track"><div class="fill" style="width:37.5%;background:#77aeea"></div></div><b>3</b></div>
+        <div class="brow"><span>Jurnal G (SINTA 5)</span><div class="track"><div class="fill" style="width:25%;background:#ec8fb4"></div></div><b>2</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cols">
+    <div class="card"><h2 class="title">Aktivitas PILAR <button class="smallbtn" style="float:right">30 Hari Terakhir⌄</button></h2>
+      <div class="activity">
+        <svg class="spark" viewBox="0 0 500 170" preserveAspectRatio="none">
+          <polyline points="0,165 35,145 70,125 105,118 140,124 175,108 210,82 245,70 280,57 315,66 350,31 385,46 420,23 455,8 490,23" fill="none" stroke="#2d82e8" stroke-width="3"/>
+          <polyline points="0,166 35,160 70,155 105,151 140,144 175,137 210,127 245,114 280,106 315,92 350,83 385,74 420,66 455,54 490,48" fill="none" stroke="#38b77c" stroke-width="3"/>
+          <polyline points="0,168 35,167 70,163 105,158 140,153 175,145 210,141 245,137 280,130 315,125 350,111 385,114 420,105 455,99 490,87" fill="none" stroke="#f57b35" stroke-width="3"/>
+          <polyline points="0,169 35,168 70,168 105,166 140,163 175,159 210,155 245,150 280,145 315,140 350,132 385,126 420,119 455,113 490,107" fill="none" stroke="#9b79eb" stroke-width="3"/>
+        </svg>
+      </div>
+      <div style="font-size:9px;margin-top:7px;display:flex;gap:13px"><span>🔵 Artikel Masuk</span><span>🟢 Review Selesai</span><span>🟠 Revisi Masuk</span><span>🟣 Accepted</span></div>
+    </div>
+    <div class="card"><h2 class="title">Distribusi Tahapan Artikel</h2>
+      <div class="deadline"><div class="donut" style="background:conic-gradient(#35b97b 0 45%,#f8bd32 45% 72%,#ef7b32 72% 86%,#9b79eb 86% 100%)"><div class="donutlabel">33<span>Artikel</span></div></div>
+      <div class="legend">
+        <div class="leg"><span class="left"><i class="dot" style="background:#35b97b"></i>Accepted</span><b>15 (45%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#f8bd32"></i>Major Revision</span><b>9 (27%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#ef7b32"></i>Minor Revision</span><b>2 (6%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#9b79eb"></i>Submitted</span><b>6 (18%)</b></div>
+        <div class="leg"><span class="left"><i class="dot" style="background:#3988e8"></i>Sedang Review</span><b>1 (3%)</b></div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="section cols">
+    <div class="card"><h2 class="title">Kinerja Reviewer <button class="smallbtn" style="float:right">Lihat Semua</button></h2>
+      <table class="reviewtable"><thead><tr><th>Reviewer</th><th>Assigned</th><th>Reviewed</th><th>Revisi</th><th>Accepted</th><th>Pending</th></tr></thead><tbody>
+      <tr><td><span class="avatar a1">A</span>Aldi</td><td>8</td><td>8</td><td>5</td><td>3</td><td>0</td></tr>
+      <tr><td><span class="avatar a2">A</span>Aliakbar</td><td>8</td><td>6</td><td>4</td><td>2</td><td>2</td></tr>
+      <tr><td><span class="avatar a3">R</span>Rosma</td><td>9</td><td>7</td><td>5</td><td>2</td><td>2</td></tr>
+      <tr><td><span class="avatar a4">R</span>Reni</td><td>8</td><td>7</td><td>4</td><td>3</td><td>1</td></tr>
+      </tbody></table>
+    </div>
+    <div class="card"><h2 class="title">Perlu Tindakan <button class="smallbtn" style="float:right">Lihat Semua</button></h2>
+      <div class="actions">
+        <div class="act red"><span>❗ &nbsp; 8 artikel melewati deadline review</span>›</div>
+        <div class="act amber"><span>◷ &nbsp; 22 artikel menunggu review</span>›</div>
+        <div class="act orange"><span>☑ &nbsp; 11 artikel menunggu revisi mahasiswa</span>›</div>
+        <div class="act blue"><span>♟ &nbsp; 3 artikel belum di-assign reviewer</span>›</div>
+        <div class="act green"><span>✓ &nbsp; 15 artikel siap disubmit ke jurnal</span>›</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section card attention"><h2 class="title">Artikel Perlu Perhatian <button class="smallbtn" style="float:right">Lihat Semua</button></h2>
+    <table><thead><tr><th>Judul Artikel</th><th>Reviewer</th><th>Status</th><th>Deadline</th><th>Sisa Waktu</th></tr></thead><tbody>
+      <tr><td>Pengembangan Sistem Pembelajaran Adaptif Berbasis ...</td><td>Rosma</td><td><span class="tag major">Major Revision</span></td><td>2026-09-23</td><td><span class="tag late">Terlambat</span></td></tr>
+      <tr><td>Analisis Feasibility Sistem Aliran Dana Moneter Indonesia ...</td><td>Rosma</td><td><span class="tag major">Major Revision</span></td><td>2026-09-24</td><td><span class="tag soon">4 jam lagi</span></td></tr>
+      <tr><td>Application of SPLDV in Case Method-Based Contextual ...</td><td>Aldi</td><td><span class="tag minor">Minor Revision</span></td><td>2026-09-23</td><td><span class="tag late">Terlambat</span></td></tr>
+      <tr><td>Pengembangan Multimedia Interaktif Berbasis 3D ...</td><td>Aliakbar</td><td><span class="tag review">Sedang Review</span></td><td>2026-09-24</td><td><span class="tag soon">6 jam lagi</span></td></tr>
+      <tr><td>Pengembangan Chatbot Pembelajaran Berbasis Telegram ...</td><td>Aliakbar</td><td><span class="tag submitted">Submitted</span></td><td>2026-09-25</td><td><span class="tag one">1 hari lagi</span></td></tr>
+    </tbody></table>
+  </section>
+
+  <section class="section card"><h2 class="title">Luaran Akademik <button class="smallbtn" style="float:right">Lihat Detail Luaran</button></h2>
+    <div class="output">
+      <div class="out"><div class="oi">▤</div><div class="on">33</div><div class="ot">Artikel<br>Masuk</div></div>
+      <div class="out"><div class="oi">✓</div><div class="on">15</div><div class="ot">Accepted</div></div>
+      <div class="out"><div class="oi">↥</div><div class="on">15</div><div class="ot">Siap Submit</div></div>
+      <div class="out"><div class="oi">➤</div><div class="on">-</div><div class="ot">Submitted<br>ke Jurnal</div></div>
+      <div class="out"><div class="oi">⌕</div><div class="on">-</div><div class="ot">Under<br>Review</div></div>
+      <div class="out"><div class="oi">♛</div><div class="on">-</div><div class="ot">Published<br>(DOI)</div></div>
+    </div>
+  </section>
+</main>
+</div>
+</body>
+</html>
