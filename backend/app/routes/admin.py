@@ -2650,7 +2650,7 @@ def list_reviews(
     article_map: dict[int, dict[str, Any]] = {}
     reviewer_map: dict[int, dict[str, Any]] = {}
     if assignment_ids:
-        assignments = supabase.table("reviewer_assignments").select("id,article_id,deadline,status").in_("id", list(assignment_ids)).execute().data or []
+        assignments = supabase.table("reviewer_assignments").select("id,article_id,deadline,status,assigned_at").in_("id", list(assignment_ids)).execute().data or []
         article_ids = {int(row["article_id"]) for row in assignments if row.get("article_id")}
         if article_ids:
             articles = supabase.table("articles").select("id,title,status,journal_id").in_("id", list(article_ids)).execute().data or []
@@ -2670,6 +2670,126 @@ def list_reviews(
         row["article"] = article_map.get(int(assignment["article_id"])) if assignment and assignment.get("article_id") else None
         row["reviewer"] = reviewer_map.get(int(row["reviewer_id"])) if row.get("reviewer_id") else None
     return rows
+
+
+@router.get("/reviewer-history", response_model=list[dict[str, Any]])
+def list_reviewer_history(
+    _: dict = Depends(require_admin),
+    supabase: Client = Depends(get_service_client),
+    recommendation: str | None = Query(default=None, max_length=50),
+):
+    """Return the complete reviewer review history, including article authors and comments."""
+    query = supabase.table("reviews").select(
+        "id,assignment_id,article_version_id,reviewer_id,comments_for_author,recommendation,updated_at,created_at"
+    )
+    if recommendation:
+        query = query.eq("recommendation", recommendation)
+    rows = query.order("updated_at", desc=True).execute().data or []
+
+    if not rows:
+        return []
+
+    assignment_ids = {int(row["assignment_id"]) for row in rows if row.get("assignment_id") is not None}
+    version_ids = {int(row["article_version_id"]) for row in rows if row.get("article_version_id") is not None}
+    reviewer_ids = {int(row["reviewer_id"]) for row in rows if row.get("reviewer_id") is not None}
+
+    assignments = (
+        supabase.table("reviewer_assignments")
+        .select("id,article_id")
+        .in_("id", list(assignment_ids))
+        .execute()
+        .data
+        or []
+    ) if assignment_ids else []
+    assignment_map = {int(row["id"]): row for row in assignments}
+
+    article_ids = {int(row["article_id"]) for row in assignments if row.get("article_id") is not None}
+    articles = (
+        supabase.table("articles")
+        .select("id,title")
+        .in_("id", list(article_ids))
+        .execute()
+        .data
+        or []
+    ) if article_ids else []
+    article_map = {int(row["id"]): row for row in articles}
+
+    versions = (
+        supabase.table("article_versions")
+        .select("id,article_id,version_number")
+        .in_("id", list(version_ids))
+        .execute()
+        .data
+        or []
+    ) if version_ids else []
+    version_map = {int(row["id"]): row for row in versions}
+
+    authors = (
+        supabase.table("article_authors")
+        .select("article_id,student_id,author_order")
+        .in_("article_id", list(article_ids))
+        .order("author_order")
+        .execute()
+        .data
+        or []
+    ) if article_ids else []
+    student_ids = {int(row["student_id"]) for row in authors if row.get("student_id") is not None}
+    students = (
+        supabase.table("students")
+        .select("id,full_name")
+        .in_("id", list(student_ids))
+        .execute()
+        .data
+        or []
+    ) if student_ids else []
+    student_map = {int(row["id"]): row for row in students}
+
+    lecturers = (
+        supabase.table("lecturers")
+        .select("user_id,full_name")
+        .in_("user_id", list(reviewer_ids))
+        .execute()
+        .data
+        or []
+    ) if reviewer_ids else []
+    lecturer_map = {int(row["user_id"]): row for row in lecturers}
+
+    authors_by_article: dict[int, list[str]] = {}
+    for author in authors:
+        student = student_map.get(int(author["student_id"])) if author.get("student_id") is not None else None
+        full_name = str((student or {}).get("full_name") or "").strip()
+        if full_name:
+            authors_by_article.setdefault(int(author["article_id"]), []).append(full_name)
+
+    history: list[dict[str, Any]] = []
+    for row in rows:
+        assignment = assignment_map.get(int(row["assignment_id"])) if row.get("assignment_id") is not None else None
+        article = article_map.get(int(assignment["article_id"])) if assignment and assignment.get("article_id") is not None else None
+        version = version_map.get(int(row["article_version_id"])) if row.get("article_version_id") is not None else None
+        recommendation_value = str(row.get("recommendation") or "").strip()
+        recommendation_lower = recommendation_value.lower()
+
+        if "revision" in recommendation_lower:
+            version_number = version.get("version_number") if version else "?"
+            keterangan = f"Revisi {version_number}"
+        elif "accept" in recommendation_lower:
+            keterangan = "Article Ready Submit to Journal"
+        else:
+            keterangan = "Processing Review"
+
+        history.append({
+            "id": row.get("id"),
+            "Authors": ", ".join(authors_by_article.get(int(article["id"]), [])) if article and article.get("id") is not None else "—",
+            "article_title": (article or {}).get("title") or "—",
+            "Reviewer": ((lecturer_map.get(int(row["reviewer_id"])) or {}).get("full_name") if row.get("reviewer_id") is not None else None) or "—",
+            "comments_for_author": row.get("comments_for_author") or "—",
+            "recommendation": recommendation_value or "—",
+            "version_number": (version or {}).get("version_number") if version else None,
+            "Keterangan": keterangan,
+            "updated_at": row.get("updated_at"),
+        })
+
+    return history
 
 
 @router.get("/mentorship-assignments", response_model=list[dict[str, Any]])

@@ -382,6 +382,34 @@
     min-width: 180px
 }
 
+.commentCell {
+    min-width: 260px;
+    max-width: 420px;
+    white-space: pre-wrap;
+    line-height: 1.5;
+    color: #475569;
+    vertical-align: top;
+}
+
+.commentText {
+    overflow-wrap: anywhere;
+}
+
+.commentToggle {
+    border: 0;
+    background: none;
+    padding: 5px 0 0;
+    color: #1e5aa8;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.commentToggle:hover {
+    text-decoration: underline;
+}
+
 .empty {
     padding: 24px;
     text-align: center;
@@ -1244,4 +1272,53 @@
 .dashboardMetricIcon svg,
 .dashboardFlowCircle svg {
     display: block;
+}
+
+.pagination {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.paginationInfo {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.paginationControls {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.pageButton {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pageButton:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #b8c8dc;
+}
+
+.pageButton:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pageButtonActive {
+    background: #1e5aa8;
+    border-color: #1e5aa8;
+    color: #fff;
 }

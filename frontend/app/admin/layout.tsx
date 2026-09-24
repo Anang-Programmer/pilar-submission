@@ -18,6 +18,7 @@ const menu: ReadonlyArray<readonly [string, string, IconName]> = [
   ["/admin/artikel", "Artikel", "articles"],
   ["/admin/assignment-reviewer", "Assignment Reviewer", "review"],
   ["/admin/monitoring-review", "Monitoring Review", "history"],
+  ["/admin/reviewer-history", "Reviewers History", "history"],
   ["/admin/peserta", "Peserta", "profile"],
   ["/admin/pendamping", "Pendamping", "profile"],
   ["/admin/laporan", "Laporan", "history"],
@@ -155,6 +156,9 @@ export default function AdminLayout({
       "/admin/monitoring-review": [
         "/api/admin/reviewer-assignments",
         "/api/admin/reviews",
+      ],
+      "/admin/reviewer-history": [
+        "/api/admin/reviewer-history",
       ],
       "/admin/peserta": [
         "/api/admin/participants",

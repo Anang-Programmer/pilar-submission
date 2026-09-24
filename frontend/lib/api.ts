@@ -865,6 +865,8 @@ export const api = {
 
     reviews: (params?: { status?: string; recommendation?: string }) =>
       request(`/api/admin/reviews${query(params || {})}`),
+    reviewerHistory: (params?: { recommendation?: string }) =>
+      request(`/api/admin/reviewer-history${query(params || {})}`),
 
     mentorshipAssignments: () =>
       request("/api/admin/mentorship-assignments"),
