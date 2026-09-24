@@ -424,8 +424,37 @@ def _enrich_articles(
             ),
             None,
         )
-        latest_review = latest_reviews.get(article_id)
-        latest_revision = latest_revisions.get(article_id)
+        # Hanya review yang terkait dengan versi artikel AKTIF yang boleh
+        # dianggap sebagai latest_review. Review versi lama tetap disimpan
+        # sebagai histori, tetapi tidak boleh tampil sebagai review aktif.
+        current_version_id = article.get("current_version_id")
+        article_reviews = history["reviews_by_article"].get(article_id, [])
+        latest_review = next(
+            (
+                review
+                for review in article_reviews
+                if current_version_id is not None
+                and review.get("article_version_id") is not None
+                and str(review.get("article_version_id")) == str(current_version_id)
+                and (review.get("submitted_at") or _normalize_status(review.get("status")) == "submitted")
+            ),
+            None,
+        )
+
+        # Hanya revision request yang masih aktif yang menjadi latest_revision.
+        # Request lama (mis. sudah completed setelah peserta upload v2) tidak
+        # boleh membuat status peserta tetap menunjukkan "Revisi Diperlukan".
+        article_revisions = history["revision_requests_by_article"].get(article_id, [])
+        latest_revision = next(
+            (
+                revision
+                for revision in article_revisions
+                if _normalize_status(revision.get("status"))
+                in {"open", "pending", "requested", "revision_required"}
+            ),
+            None,
+        )
+
         item = dict(article)
         item["project"] = project_map.get(int(article["project_id"])) if article.get("project_id") else None
         item["journal"] = journal_map.get(int(article["journal_id"])) if article.get("journal_id") else None

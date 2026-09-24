@@ -164,6 +164,7 @@ export type Article = {
   authors: Author[];
   current_version?: ArticleVersion | null;
   current_version_number?: number | null;
+  versions?: ArticleVersion[];
   latest_review?: Review | null;
   latest_revision_request?: RevisionRequest | null;
   review_count: number;

@@ -43,10 +43,15 @@ function statusLabel(article: any): string {
     return "Menunggu Finalisasi";
   }
 
+  const currentVersionReviewed =
+    currentVersionId != null &&
+    reviewedVersionId != null &&
+    String(currentVersionId) === String(reviewedVersionId);
+
   if (
     ["open", "pending", "requested", "revision_required"].includes(revision) ||
-    recommendation === "major revision" ||
-    recommendation === "minor revision"
+    (currentVersionReviewed &&
+      (recommendation === "major revision" || recommendation === "minor revision"))
   ) {
     return "Revisi Diperlukan";
   }

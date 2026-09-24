@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "../../../lib/api";
 import type { ReviewResult } from "../types";
 import { Icon } from "../../../components/Icon";
@@ -40,6 +40,10 @@ function needsRevision(value?: string | null): boolean {
 
 export default function HasilReviewPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedArticleId = searchParams.get("articleId");
+  const requestedVersionId = searchParams.get("versionId");
+
   const [items, setItems] = useState<ReviewResult[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -49,17 +53,45 @@ export default function HasilReviewPage() {
     api.peserta.reviewResults()
       .then((value) => {
         setItems(value);
+
+        if (requestedArticleId) {
+          const requestedArticle = value.find(
+            (item : ReviewResult) => String(item.id) === String(requestedArticleId),
+          );
+          if (requestedArticle) {
+            setSelectedId(String(requestedArticle.id));
+            return;
+          }
+        }
+
         if (value[0]) setSelectedId(String(value[0].id));
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Gagal memuat hasil review peserta."))
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : "Gagal memuat hasil review peserta."),
+      )
       .finally(() => setLoading(false));
-  }, []);
+  }, [requestedArticleId]);
 
   const article = items.find((x) => String(x.id) === selectedId) || null;
-  const review = article?.reviews?.[0] || article?.latest_review;
+
+  // Bila halaman dibuka dari Riwayat, tampilkan review untuk versi yang diklik.
+  // Tanpa versionId, gunakan latest_review yang sudah difilter BE ke versi aktif.
+  const review = requestedVersionId
+    ? article?.reviews?.find(
+        (item) => String(item.article_version_id) === String(requestedVersionId),
+      ) || null
+    : article?.latest_review || null;
+
+  const selectedVersion = requestedVersionId
+    ? article?.versions?.find(
+        (item) => String(item.id) === String(requestedVersionId),
+      ) || null
+    : article?.current_version || null;
+
   const reviewerName = review?.reviewer_name || "Reviewer";
   const recommendation = recommendationLabel(review?.recommendation);
   const message = reviewMessage(review?.recommendation);
+  const canUploadRevision = !requestedVersionId && needsRevision(review?.recommendation);
 
   return <>
     <div className={styles.title}>
@@ -86,13 +118,13 @@ export default function HasilReviewPage() {
           <h2>{article?.title}</h2>
           <div className={styles.metaRow}>
             <span className={styles.metaItem}>
-              Versi <strong>{article?.current_version_number ? `v${article.current_version_number}` : "-"}</strong>
+              Versi <strong>{selectedVersion?.version_number ? `v${selectedVersion.version_number}` : "-"}</strong>
             </span>
             <span className={styles.metaItem}>
               Reviewer <strong>{reviewerName}</strong>
             </span>
             <span className={styles.metaItem}>
-              Dikirim <strong>{formatDate(article?.submitted_at)}</strong>
+              Dikirim <strong>{formatDate(selectedVersion?.uploaded_at || article?.submitted_at)}</strong>
             </span>
           </div>
         </div>
@@ -108,7 +140,7 @@ export default function HasilReviewPage() {
             {review.comments_for_author || "Belum ada komentar untuk penulis."}
           </div>
 
-          {needsRevision(review.recommendation) && (
+          {canUploadRevision && (
             <div className={styles.actionRow}>
               <button
                 type="button"
@@ -121,7 +153,11 @@ export default function HasilReviewPage() {
             </div>
           )}
         </> : (
-          <div className={styles.empty}>Belum ada hasil review untuk artikel ini.</div>
+          <div className={styles.empty}>
+            {requestedVersionId
+              ? "Belum ada hasil review untuk versi artikel ini."
+              : "Belum ada hasil review untuk artikel ini."}
+          </div>
         )}
       </>}
     </div>
