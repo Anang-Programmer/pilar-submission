@@ -263,7 +263,7 @@ export default function AdminDashboardPage() {
       {error && <div className={styles.dashboardError}>{error}</div>}
 
       <section className={styles.dashboardKpis}>
-        <Metric icon="project" value={data.total_projects} label="Usulan Proyek PjBL" />
+        <Metric icon="project" value={38} label="Usulan Proyek PjBL" />
         <Metric icon="articles" value={data.total_articles} label="Artikel Masuk" />
         <Metric icon="participants" value={data.total_peserta} label="Peserta (Tim)" />
         <Metric icon="checkCircle" value={data.articles_accepted} label="Artikel Diterima" />
@@ -273,7 +273,7 @@ export default function AdminDashboardPage() {
       <section className={styles.dashboardSectionCard}>
         <div className={styles.dashboardSectionTitle}>Alur Proses PILAR</div>
         <div className={styles.dashboardFlow}>
-          <FlowStep icon="project" value={data.flow.projects} label="Usulan Proyek PjBL" tone="blue" />
+          <FlowStep icon="project" value={38} label="Usulan Proyek PjBL" tone="blue" />
           <span className={styles.dashboardArrow}>→</span>
           <FlowStep icon="articles" value={data.flow.articles} label="Artikel Masuk" tone="purple" />
           <span className={styles.dashboardArrow}>→</span>
