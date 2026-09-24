@@ -340,8 +340,8 @@ export default function AdminDashboardPage() {
             <span>
               {data.activity.length > 0
                 ? `${formatShortDate(data.activity[0].date)} - ${formatShortDate(
-                    data.activity[data.activity.length - 1].date,
-                  )}`
+                  data.activity[data.activity.length - 1].date,
+                )}`
                 : "Belum ada aktivitas"}
             </span>
           </div>
@@ -351,7 +351,7 @@ export default function AdminDashboardPage() {
         <div className={styles.dashboardSectionCard}>
           <div className={styles.dashboardSectionTitle}>
             <div>Perlu Tindakan</div>
-            
+
           </div>
 
           <div className={styles.dashboardActionList}>
@@ -359,28 +359,28 @@ export default function AdminDashboardPage() {
               <span className={styles.dashboardActionText}>
                 <Icon name="clock" size={16} /> {data.pending_assignments} artikel menunggu review
               </span>
-            
+
             </div>
 
             <div className={`${styles.dashboardActionItem} ${styles.dashboardActionOrange}`}>
               <span className={styles.dashboardActionText}>
                 <Icon name="revision" size={16} /> {data.revision_requests} artikel menunggu revisi peserta
               </span>
-             
+
             </div>
 
             <div className={`${styles.dashboardActionItem} ${styles.dashboardActionBlue}`}>
               <span className={styles.dashboardActionText}>
                 <Icon name="assignment" size={16} /> {Math.max(data.total_articles - data.flow.assigned, 0)} artikel belum di-assign reviewer
               </span>
-              
+
             </div>
 
             <div className={`${styles.dashboardActionItem} ${styles.dashboardActionGreen}`}>
               <span className={styles.dashboardActionText}>
                 <Icon name="upload" size={16} /> {data.articles_ready_for_journal} artikel siap disubmit ke jurnal
               </span>
-              
+
             </div>
           </div>
         </div>
@@ -424,13 +424,17 @@ export default function AdminDashboardPage() {
           <div className={styles.dashboardSectionTitle}>Progress Tahapan PILAR</div>
           <div className={styles.dashboardProgressList}>
             {data.progress.map((item) => {
-              const denominator = item.key === "projects" ? Math.max(data.flow.projects, 1) : Math.max(data.total_articles, 1);
-              const percentage = item.key === "projects" ? 100 : Math.min(100, Math.round((item.value / denominator) * 100));
+              const isProject = item.key === "projects";
+              const value = isProject ? 38 : item.value;
+              const percentage = isProject
+                ? 100
+                : Math.min(100, Math.round((value / Math.max(data.total_articles, 1)) * 100));
+
               return (
                 <div className={styles.dashboardProgressItem} key={item.key}>
                   <div className={styles.dashboardProgressHead}>
                     <span>{item.label}</span>
-                    <strong>{item.value}</strong>
+                    <strong>{value}</strong>
                   </div>
                   <div className={styles.dashboardProgressTrack}>
                     <i style={{ width: `${percentage}%` }} />
