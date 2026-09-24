@@ -5,6 +5,11 @@ import csv
 import os
 import bcrypt
 import io
+import tempfile
+import zipfile
+
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -1081,6 +1086,177 @@ def create_user(
                 pass
 
         _raise_supabase_error(exc, "Gagal membuat user")
+        raise AssertionError("unreachable")
+    
+    
+@router.get("/articles/download-accepted")
+def download_accepted_articles(
+    _: dict = Depends(require_admin),
+    supabase: Client = Depends(get_service_client),
+):
+    """
+    Download semua artikel yang mendapatkan recommendation Accept
+    pada versi artikel yang sedang aktif/current.
+
+    Hasil berupa satu ZIP.
+    """
+    try:
+        # Ambil artikel beserta current version.
+        articles = (
+            supabase.table("articles")
+            .select("id,title,current_version_id")
+            .execute()
+            .data
+            or []
+        )
+
+        current_version_ids = [
+            int(row["current_version_id"])
+            for row in articles
+            if row.get("current_version_id") is not None
+        ]
+
+        if not current_version_ids:
+            raise HTTPException(
+                status_code=404,
+                detail="Belum ada artikel dengan versi aktif.",
+            )
+
+        # Ambil versi aktif saja.
+        versions = (
+            supabase.table("article_versions")
+            .select(
+                "id,article_id,version_number,file_name,file_path,file_type"
+            )
+            .in_("id", current_version_ids)
+            .execute()
+            .data
+            or []
+        )
+
+        version_by_id = {
+            int(row["id"]): row
+            for row in versions
+        }
+
+        # Cari review Accept pada versi aktif.
+        accepted_reviews = (
+            supabase.table("reviews")
+            .select("article_version_id")
+            .in_("article_version_id", current_version_ids)
+            .ilike("recommendation", "%accept%")
+            .execute()
+            .data
+            or []
+        )
+
+        accepted_version_ids = {
+            int(row["article_version_id"])
+            for row in accepted_reviews
+            if row.get("article_version_id") is not None
+        }
+
+        accepted_versions = [
+            version_by_id[version_id]
+            for version_id in accepted_version_ids
+            if version_id in version_by_id
+        ]
+
+        if not accepted_versions:
+            raise HTTPException(
+                status_code=404,
+                detail="Belum ada artikel yang berstatus Accept.",
+            )
+
+        # Pastikan semua artikel punya path Storage.
+        missing_files = [
+            int(row["id"])
+            for row in accepted_versions
+            if not row.get("file_path")
+        ]
+
+        if missing_files:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Ada artikel Accept yang tidak memiliki file_path: "
+                    + ", ".join(map(str, missing_files))
+                ),
+            )
+
+        # Buat ZIP sementara di server.
+        temp_file = tempfile.NamedTemporaryFile(
+            prefix="pilar_accepted_",
+            suffix=".zip",
+            delete=False,
+        )
+        temp_path = temp_file.name
+        temp_file.close()
+
+        try:
+            with zipfile.ZipFile(
+                temp_path,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=6,
+            ) as archive:
+
+                for version in accepted_versions:
+                    file_path = str(version["file_path"])
+
+                    file_bytes = (
+                        supabase.storage
+                        .from_(ARTICLE_STORAGE_BUCKET)
+                        .download(file_path)
+                    )
+
+                    if not file_bytes:
+                        raise RuntimeError(
+                            f"File Storage kosong: {file_path}"
+                        )
+
+                    original_name = (
+                        os.path.basename(
+                            str(version.get("file_name") or "artikel")
+                        )
+                    )
+
+                    archive_name = (
+                        f"article_{version['article_id']}"
+                        f"_v{version['version_number']}"
+                        f"_{original_name}"
+                    )
+
+                    archive.writestr(
+                        archive_name,
+                        file_bytes,
+                    )
+
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
+
+        return FileResponse(
+            temp_path,
+            media_type="application/zip",
+            filename="pilar-artikel-accepted.zip",
+            background=BackgroundTask(
+                lambda path: os.path.exists(path)
+                and os.unlink(path),
+                temp_path,
+            ),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_supabase_error(
+            exc,
+            "Gagal menyiapkan download artikel Accept",
+        )
         raise AssertionError("unreachable")
 
 

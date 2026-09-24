@@ -893,5 +893,7 @@ export const api = {
 
     reportSummary: () => request("/api/admin/reports/summary"),
     exportReport: () => download("/api/admin/reports/summary.csv"),
+    downloadAcceptedArticles: () =>
+      download("/api/admin/articles/download-accepted"),
   },
 };

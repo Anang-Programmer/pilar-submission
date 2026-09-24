@@ -186,6 +186,7 @@ export default function AdminDashboardPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadingAccepted, setDownloadingAccepted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -228,6 +229,35 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function downloadAcceptedArticles() {
+    setError("");
+    setDownloadingAccepted(true);
+
+    try {
+      const blob = await api.admin.downloadAcceptedArticles();
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+
+      anchor.href = url;
+      anchor.download = "pilar-artikel-accepted.zip";
+
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Gagal mengunduh artikel Accept.",
+      );
+    } finally {
+      setDownloadingAccepted(false);
+    }
+  }
+
   const data = dashboard || {
     total_projects: 0,
     total_articles: 0,
@@ -257,7 +287,17 @@ export default function AdminDashboardPage() {
           <h1>Dashboard Monitoring PILAR PTIK 2026</h1>
           <p>Program Inkubasi Luaran Akademik Berbasis Riset</p>
         </div>
+        <button
+          className={`${styles.btn} ${styles.secondary}`}
+          onClick={downloadAcceptedArticles}
+          disabled={downloadingAccepted}
+        >
+          {downloadingAccepted
+            ? "Menyiapkan ZIP..."
+            : "Download Semua Accepted"}
+        </button>
       </div>
+
 
       {loading && <div className={styles.dashboardInfo}>Memperbarui data dashboard...</div>}
       {error && <div className={styles.dashboardError}>{error}</div>}
