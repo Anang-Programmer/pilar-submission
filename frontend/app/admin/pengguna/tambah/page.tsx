@@ -43,7 +43,7 @@ export default function AddUserPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Gagal memuat data mata kuliah/reviewer"));
   }, [form.role]);
 
-  const roleLabel = useMemo(() => form.role === "reviewer" ? "Profil Reviewer" : form.role === "peserta" ? "Profil Peserta" : form.role === "dashboard" ? "Data Akun Dashboard" : "Data Akun Admin", [form.role]);
+  const roleLabel = useMemo(() => form.role === "reviewer" ? "Profil Reviewer" : form.role === "peserta" ? "Profil Peserta" : form.role === "dashboard" ? "-" : "Data Akun Admin", [form.role]);
 
   function setField(key: string, value: string | boolean) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -120,7 +120,7 @@ export default function AddUserPage() {
                 </Field>
               </div>
             ) : (
-              <p className={styles.fieldHint}>{form.role === "dashboard" ? "Role Dashboard hanya memerlukan data akun. Tidak dibuat record pada `students` atau `lecturers`. Pengguna Dashboard akan diarahkan ke halaman monitoring read-only." : "Admin hanya memerlukan data akun. Tidak dibuat record pada `students` atau `lecturers`."}</p>
+              <p className={styles.fieldHint}>{form.role === "dashboard" ? "-" : "-"}</p>
             )}
           </div>
 

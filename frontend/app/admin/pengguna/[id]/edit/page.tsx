@@ -145,8 +145,9 @@ export default function EditUserPage() {
           <Field label="No. HP"><input className={styles.input} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
         </div></div> : null}
 
-        {form.role === "dashboard" ? <div className={styles.formSection}><h3>Data Akun Dashboard</h3>
-          <p className={styles.fieldHint}>Role Dashboard hanya membutuhkan data akun dan hanya dapat membuka halaman monitoring read-only. Tidak dibuat atau diwajibkan profil Peserta/Reviewer.</p>
+        {form.role === "dashboard" ? <div className={styles.formSection}>
+          {/* <h3>Data Akun Dashboard</h3> */}
+          {/* <p className={styles.fieldHint}>Role Dashboard hanya membutuhkan data akun dan hanya dapat membuka halaman monitoring read-only. Tidak dibuat atau diwajibkan profil Peserta/Reviewer.</p> */}
         </div> : null}
 
         <div className={styles.actions} style={{ justifyContent: "flex-end" }}><Link href="/admin/pengguna" className={`${styles.btn} ${styles.secondary}`}>Kembali</Link><button className={`${styles.btn} ${styles.primary}`} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Perubahan"}</button></div>
