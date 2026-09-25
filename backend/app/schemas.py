@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
-RoleName = Literal["admin", "reviewer", "peserta"]
+RoleName = Literal["admin", "reviewer", "peserta", "dashboard"]
 
 
 class CurrentUserOut(BaseModel):
