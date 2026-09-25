@@ -47,6 +47,7 @@ function LoginContent() {
     if (normalized === "admin") router.replace("/admin");
     else if (normalized === "reviewer") router.replace(next.startsWith("/reviewer") ? next : "/reviewer");
     else if (normalized === "peserta") router.replace(next.startsWith("/peserta") ? next : "/peserta");
+    else if (normalized === "dashboard") router.replace(next.startsWith("/dashboard-user") ? next : "/dashboard-user");
     else router.replace(next.startsWith("/dashboard") ? next : "/dashboard");
   }
 
@@ -117,6 +118,7 @@ function LoginContent() {
             <span>Peserta</span>
             <span>Reviewer</span>
             <span>Admin</span>
+            <span>Dashboard</span>
           </div>
         </section>
 

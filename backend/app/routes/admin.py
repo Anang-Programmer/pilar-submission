@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from supabase import Client
 
-from ..deps import require_admin
+from ..deps import require_admin, require_admin_or_dashboard
 from ..schemas import (
     AdminCourseCreate,
     AdminCourseUpdate,
@@ -465,7 +465,7 @@ def _project_has_student(service: Client, project_id: int, student_id: int) -> b
 
 @router.get("/dashboard", response_model=AdminDashboardOut)
 def dashboard(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     """Return the Admin dashboard as one aggregated, real-data response."""
@@ -1296,6 +1296,22 @@ def update_user(
     }
     target_role = payload.role.lower() if payload.role else next(iter(current_roles), None)
 
+    # Role changes must not leave a user in a broken state. A newly selected
+    # Reviewer/Peserta role needs the corresponding academic profile fields;
+    # existing users keeping the same role may update only account fields.
+    role_is_changing = payload.role is not None and payload.role.lower() not in current_roles
+    if role_is_changing:
+        if payload.role.lower() == "reviewer":
+            if not payload.full_name:
+                raise HTTPException(status_code=400, detail="Nama Lengkap wajib diisi untuk Reviewer")
+            if not payload.nidn and not payload.nip:
+                raise HTTPException(status_code=400, detail="NIDN atau NIP wajib diisi untuk Reviewer")
+        elif payload.role.lower() == "peserta":
+            if not payload.full_name:
+                raise HTTPException(status_code=400, detail="Nama Lengkap wajib diisi untuk Peserta")
+            if not payload.nim:
+                raise HTTPException(status_code=400, detail="NIM wajib diisi untuk Peserta")
+
     local_update: dict[str, Any] = {}
     if payload.username is not None:
         local_update["username"] = payload.username
@@ -1630,7 +1646,7 @@ def list_reviewers(
 
 @router.get("/participants", response_model=list[dict[str, Any]])
 def list_participants(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     response = (
@@ -1805,7 +1821,7 @@ def delete_journal(
 
 @router.get("/projects", response_model=list[dict[str, Any]])
 def list_projects(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     search: str | None = Query(default=None, max_length=100),
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
@@ -2163,7 +2179,7 @@ def delete_project_selection(
 
 @router.get("/articles", response_model=list[dict[str, Any]])
 def list_articles(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     search: str | None = Query(default=None, max_length=100),
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
@@ -2385,7 +2401,7 @@ def finalize_article(
 @router.get("/articles/{article_id}/versions", response_model=list[dict[str, Any]])
 def list_article_versions(
     article_id: int,
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     if not supabase.table("articles").select("id").eq("id", article_id).maybe_single().execute().data:
@@ -2404,7 +2420,7 @@ def list_article_versions(
 @router.get("/articles/{article_id}/workflow", response_model=dict[str, Any])
 def article_workflow(
     article_id: int,
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     article = (
@@ -2632,7 +2648,7 @@ def delete_reviewer_assignment(
 
 @router.get("/reviews", response_model=list[dict[str, Any]])
 def list_reviews(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     status_filter: str | None = Query(default=None, alias="status", max_length=50),
     recommendation: str | None = Query(default=None, max_length=50),
@@ -2794,7 +2810,7 @@ def list_reviewer_history(
 
 @router.get("/mentorship-assignments", response_model=list[dict[str, Any]])
 def list_mentorship_assignments(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     rows = (
@@ -2926,7 +2942,7 @@ def delete_mentorship_assignment(
 
 @router.get("/mentorship-sessions", response_model=list[dict[str, Any]])
 def list_mentorship_sessions(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     assignment_id: int | None = Query(default=None),
 ):
@@ -3068,7 +3084,7 @@ def delete_project(
 @router.get("/projects/{project_id}/article-access", response_model=dict[str, Any])
 def project_article_access(
     project_id: int,
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     """Return signed URLs for the latest article file belonging to a project."""
@@ -3151,7 +3167,7 @@ def project_article_access(
 @router.get("/projects/{project_id}/workflow", response_model=dict[str, Any])
 def project_workflow(
     project_id: int,
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     project = (
@@ -3901,7 +3917,7 @@ def list_audit_logs(
 
 @router.get("/reports/summary", response_model=AdminReportSummaryOut)
 def report_summary(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     def count(table: str) -> int:

@@ -43,7 +43,7 @@ export default function AddUserPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "Gagal memuat data mata kuliah/reviewer"));
   }, [form.role]);
 
-  const roleLabel = useMemo(() => form.role === "reviewer" ? "Profil Reviewer" : form.role === "peserta" ? "Profil Peserta" : "Data Akun Admin", [form.role]);
+  const roleLabel = useMemo(() => form.role === "reviewer" ? "Profil Reviewer" : form.role === "peserta" ? "Profil Peserta" : form.role === "dashboard" ? "Data Akun Dashboard" : "Data Akun Admin", [form.role]);
 
   function setField(key: string, value: string | boolean) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -64,8 +64,8 @@ export default function AddUserPage() {
         class_name: form.class_name || null,
         phone: form.phone || null,
         full_name: form.full_name || null,
-        course_id: form.role === "peserta" ? Number(form.course_id) : null,
-        mentor_lecturer_id: form.role === "peserta" ? Number(form.mentor_lecturer_id) : null,
+        course_id: form.role === "peserta" && form.course_id ? Number(form.course_id) : null,
+        mentor_lecturer_id: form.role === "peserta" && form.mentor_lecturer_id ? Number(form.mentor_lecturer_id) : null,
       });
       router.push("/admin/pengguna");
     } catch (e) {
@@ -85,7 +85,7 @@ export default function AddUserPage() {
             <Field label="Username"><input className={styles.input} required minLength={3} value={form.username} onChange={(e) => setField("username", e.target.value)} /></Field>
             <Field label="Email"><input className={styles.input} required type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
             <Field label="Password" hint="Minimal 8 karakter."><input className={styles.input} required minLength={8} type="password" value={form.password} onChange={(e) => setField("password", e.target.value)} /></Field>
-            <Field label="Role"><select className={styles.select} value={form.role} onChange={(e) => setField("role", e.target.value)}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="peserta">Peserta</option></select></Field>
+            <Field label="Role"><select className={styles.select} value={form.role} onChange={(e) => setField("role", e.target.value)}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="peserta">Peserta</option><option value="dashboard">Dashboard</option></select></Field>
           </div>
 
           <div className={styles.formSection}>
@@ -120,7 +120,7 @@ export default function AddUserPage() {
                 </Field>
               </div>
             ) : (
-              <p className={styles.fieldHint}>Admin hanya memerlukan data akun. Tidak dibuat record pada `students` atau `lecturers`.</p>
+              <p className={styles.fieldHint}>{form.role === "dashboard" ? "Role Dashboard hanya memerlukan data akun. Tidak dibuat record pada `students` atau `lecturers`. Pengguna Dashboard akan diarahkan ke halaman monitoring read-only." : "Admin hanya memerlukan data akun. Tidak dibuat record pada `students` atau `lecturers`."}</p>
             )}
           </div>
 

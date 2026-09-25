@@ -20,7 +20,7 @@ def me(
     role = None
     
     normalized_roles = list(roles)
-    for preferred in ("admin", "reviewer", "peserta"):
+    for preferred in ("admin", "reviewer", "peserta", "dashboard"):
         if preferred in normalized_roles:
             role = preferred
             break

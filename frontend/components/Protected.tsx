@@ -24,7 +24,7 @@ export default function Protected({
   requiredRole,
 }: {
   children: ReactNode;
-  requiredRole?: "admin" | "reviewer" | "peserta";
+  requiredRole?: "admin" | "reviewer" | "peserta" | "dashboard";
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -60,10 +60,22 @@ export default function Protected({
           ? "admin"
           : normalized.includes("reviewer")
             ? "reviewer"
-            : "peserta";
+            : normalized.includes("peserta")
+              ? "peserta"
+              : normalized.includes("dashboard")
+                ? "dashboard"
+                : "peserta";
 
         if (requiredRole && primary !== requiredRole) {
-          router.replace(primary === "admin" ? "/admin" : "/dashboard");
+          const fallback =
+            primary === "admin"
+              ? "/admin"
+              : primary === "reviewer"
+                ? "/reviewer"
+                : primary === "peserta"
+                  ? "/peserta"
+                  : "/dashboard-user";
+          router.replace(fallback);
           return;
         }
 

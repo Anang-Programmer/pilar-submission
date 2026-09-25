@@ -182,7 +182,7 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("id-ID").format(value);
 }
 
-export default function AdminDashboardPage() {
+export default function AdminDashboardPage({ readOnly = false }: { readOnly?: boolean }) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -287,15 +287,17 @@ export default function AdminDashboardPage() {
           <h1>Dashboard Monitoring PILAR PTIK 2026</h1>
           <p>Program Inkubasi Luaran Akademik Berbasis Riset</p>
         </div>
-        <button
-          className={`${styles.btn} ${styles.secondary}`}
-          onClick={downloadAcceptedArticles}
-          disabled={downloadingAccepted}
-        >
-          {downloadingAccepted
-            ? "Menyiapkan ZIP..."
-            : "Download Semua Accepted"}
-        </button>
+        {!readOnly ? (
+          <button
+            className={`${styles.btn} ${styles.secondary}`}
+            onClick={downloadAcceptedArticles}
+            disabled={downloadingAccepted}
+          >
+            {downloadingAccepted
+              ? "Menyiapkan ZIP..."
+              : "Download Semua Accepted"}
+          </button>
+        ) : null}
       </div>
 
 

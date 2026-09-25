@@ -274,6 +274,19 @@ def require_admin(
     return current_user
 
 
+def require_admin_or_dashboard(
+    data: tuple[dict[str, Any], set[str]] = Depends(get_current_user_roles),
+) -> dict[str, Any]:
+    """Allow admin and dashboard roles to consume read-only monitoring endpoints."""
+    current_user, roles = data
+    if "admin" not in roles and "dashboard" not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses monitoring diperlukan",
+        )
+    return current_user
+
+
 def require_reviewer(
     data: tuple[dict[str, Any], set[str]] = Depends(get_current_user_roles),
 ) -> dict[str, Any]:

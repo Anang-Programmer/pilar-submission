@@ -126,7 +126,7 @@ export default function EditUserPage() {
         <div className={styles.formGrid}>
           <Field label="Username"><input className={styles.input} required minLength={3} value={form.username} onChange={(e) => setField("username", e.target.value)} /></Field>
           <Field label="Email"><input className={styles.input} required type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} /></Field>
-          <Field label="Role"><select className={styles.select} value={form.role} onChange={(e) => setField("role", e.target.value)}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="peserta">Peserta</option></select></Field>
+          <Field label="Role"><select className={styles.select} value={form.role} onChange={(e) => setField("role", e.target.value)}><option value="admin">Admin</option><option value="reviewer">Reviewer</option><option value="peserta">Peserta</option><option value="dashboard">Dashboard</option></select></Field>
           <Field label="Status"><select className={styles.select} value={form.is_active ? "active" : "inactive"} onChange={(e) => setField("is_active", e.target.value === "active")}><option value="active">Aktif</option><option value="inactive">Nonaktif</option></select></Field>
         </div>
 
@@ -144,6 +144,10 @@ export default function EditUserPage() {
           <Field label="Kelas"><input className={styles.input} value={form.class_name} onChange={(e) => setField("class_name", e.target.value)} /></Field>
           <Field label="No. HP"><input className={styles.input} value={form.phone} onChange={(e) => setField("phone", e.target.value)} /></Field>
         </div></div> : null}
+
+        {form.role === "dashboard" ? <div className={styles.formSection}><h3>Data Akun Dashboard</h3>
+          <p className={styles.fieldHint}>Role Dashboard hanya membutuhkan data akun dan hanya dapat membuka halaman monitoring read-only. Tidak dibuat atau diwajibkan profil Peserta/Reviewer.</p>
+        </div> : null}
 
         <div className={styles.actions} style={{ justifyContent: "flex-end" }}><Link href="/admin/pengguna" className={`${styles.btn} ${styles.secondary}`}>Kembali</Link><button className={`${styles.btn} ${styles.primary}`} disabled={saving}>{saving ? "Menyimpan..." : "Simpan Perubahan"}</button></div>
       </form>
