@@ -9,11 +9,15 @@ import styles from "../admin/admin.module.css";
 
 const menu: ReadonlyArray<readonly [string, string, IconName]> = [
   ["/dashboard-user", "Dashboard Monitoring", "dashboard"],
+  ["/dashboard-user/reviewer", "Reviewer", "review"],
+  ["/dashboard-user/mata-kuliah", "Mata Kuliah", "articles"],
+  ["/dashboard-user/jurnal", "Jurnal", "articles"],
   ["/dashboard-user/proyek", "Proyek", "project"],
   ["/dashboard-user/artikel", "Artikel", "articles"],
+  ["/dashboard-user/monitoring-review", "Monitoring Review", "history"],
+  ["/dashboard-user/reviewer-history", "Reviewers History", "history"],
   ["/dashboard-user/peserta", "Peserta", "participants"],
   ["/dashboard-user/pendamping", "Pendamping", "profile"],
-  ["/dashboard-user/monitoring-review", "Monitoring Review", "history"],
 ];
 
 function DashboardUserShell({ children }: { children: React.ReactNode }) {

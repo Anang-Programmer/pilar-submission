@@ -1620,7 +1620,7 @@ def delete_participant_assignment(
 
 @router.get("/reviewers", response_model=list[dict[str, Any]])
 def list_reviewers(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
     response = (
@@ -1682,7 +1682,7 @@ def list_participants(
 
 @router.get("/courses", response_model=list[dict[str, Any]])
 def list_courses(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     search: str | None = Query(default=None, max_length=100),
 ):
@@ -1749,7 +1749,7 @@ def delete_course(
 
 @router.get("/journals", response_model=list[dict[str, Any]])
 def list_journals(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     search: str | None = Query(default=None, max_length=100),
     is_active: bool | None = Query(default=None),
@@ -2690,7 +2690,7 @@ def list_reviews(
 
 @router.get("/reviewer-history", response_model=list[dict[str, Any]])
 def list_reviewer_history(
-    _: dict = Depends(require_admin),
+    _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
     recommendation: str | None = Query(default=None, max_length=50),
 ):
