@@ -157,24 +157,28 @@ def _load_participant_assignments(
     course_ids = {int(row["course_id"]) for row in rows if row.get("course_id") is not None}
     lecturer_ids = {int(row["lecturer_id"]) for row in rows if row.get("lecturer_id") is not None}
 
-    courses = (
-        service.table("courses")
-        .select("id,code,name,semester,study_program")
-        .in_("id", list(course_ids))
-        .execute()
-        .data
-        if course_ids
-        else []
-    )
-    lecturers = (
-        service.table("lecturers")
-        .select("id,user_id,nidn,nip,full_name,academic_title,email")
-        .in_("id", list(lecturer_ids))
-        .execute()
-        .data
-        if lecturer_ids
-        else []
-    )
+    # courses dan lecturers saling independen, jadi diambil dalam satu
+    # gelombang alih-alih dua round-trip berurutan.
+    refs = _run_parallel({
+        "courses": lambda: (
+            service.table("courses")
+            .select("id,code,name,semester,study_program")
+            .in_("id", list(course_ids))
+            .execute()
+            .data
+            or []
+        ) if course_ids else [],
+        "lecturers": lambda: (
+            service.table("lecturers")
+            .select("id,user_id,nidn,nip,full_name,academic_title,email")
+            .in_("id", list(lecturer_ids))
+            .execute()
+            .data
+            or []
+        ) if lecturer_ids else [],
+    })
+    courses = refs["courses"]
+    lecturers = refs["lecturers"]
 
     course_map = {int(row["id"]): row for row in (courses or [])}
     lecturer_map = {int(row["id"]): row for row in (lecturers or [])}
@@ -301,27 +305,37 @@ def _require_role(service: Client, user_id: int, role_name: str) -> dict[str, An
 
 
 def _get_user_for_admin_response(supabase: Client, user_id: int) -> dict[str, Any]:
-    response = (
-        supabase.table("users")
-        .select(
-            "id,auth_user_id,username,email,is_active,created_at,updated_at,"
-            "student_profile:students(id,user_id,nim,full_name,study_program,class_name,phone),"
-            "lecturer_profile:lecturers(id,user_id,nidn,nip,full_name,academic_title,email)"
-        )
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
-    user = _first_row(response)
+    # Query user dan query role hanya bergantung pada user_id dari path,
+    # bukan satu sama lain, jadi diambil serentak. Bila user tidak ada,
+    # 404 tetap dinaikkan persis seperti semula.
+    results = _run_parallel({
+        "user": lambda: (
+            supabase.table("users")
+            .select(
+                "id,auth_user_id,username,email,is_active,created_at,updated_at,"
+                "student_profile:students(id,user_id,nim,full_name,study_program,class_name,phone),"
+                "lecturer_profile:lecturers(id,user_id,nidn,nip,full_name,academic_title,email)"
+            )
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        ),
+        "role_rows": lambda: (
+            supabase.table("user_roles")
+            .select("role:roles(name)")
+            .eq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        ),
+    })
+    user_rows = results["user"]
+    user = user_rows[0] if user_rows else None
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
-    roles_response = (
-        supabase.table("user_roles")
-        .select("role:roles(name)")
-        .eq("user_id", user_id)
-        .execute()
-    )
     user["student_profile"] = _normalize_profile(user.get("student_profile"))
     user["lecturer_profile"] = _normalize_profile(user.get("lecturer_profile"))
     student_profile = user.get("student_profile") or {}
@@ -332,7 +346,7 @@ def _get_user_for_admin_response(supabase: Client, user_id: int) -> dict[str, An
     user["participant_assignments"] = assignments.get(int(student_profile["id"]), []) if student_profile.get("id") is not None else []
     user["roles"] = [
         str((row.get("role") or {}).get("name")).lower()
-        for row in (roles_response.data or [])
+        for row in (results["role_rows"] or [])
         if (row.get("role") or {}).get("name")
     ]
     return user
@@ -553,6 +567,17 @@ def dashboard(
             .data
             or []
         ),
+        # Dua query ini dulunya sekuensial setelah gelombang paralel, padahal
+        # tidak bergantung pada hasilnya sama sekali.
+        "revision_rows": lambda: (
+            supabase.table("article_versions")
+            .select("id,version_number,uploaded_at")
+            .gt("version_number", 1)
+            .execute()
+            .data
+            or []
+        ),
+        "total_users": lambda: count("users"),
     })
 
     role_rows = results["role_rows"]
@@ -779,14 +804,8 @@ def dashboard(
             activity_dates.append(day)
 
     # Version > 1 berarti ada upload revisi. Ambil seluruh histori revisi.
-    revision_rows = (
-        supabase.table("article_versions")
-        .select("id,version_number,uploaded_at")
-        .gt("version_number", 1)
-        .execute()
-        .data
-        or []
-    )
+    # (Sudah diambil dalam gelombang paralel di atas.)
+    revision_rows = results["revision_rows"]
 
     for version in revision_rows:
         day = day_key(version.get("uploaded_at"))
@@ -850,7 +869,7 @@ def dashboard(
     ]
 
     return {
-        "total_users": count("users"),
+        "total_users": int(results["total_users"]),
         "total_reviewers": len(reviewer_ids),
         "total_peserta": len(peserta_ids),
         "total_articles": len(articles),
@@ -911,17 +930,21 @@ def list_users(
     if is_active is not None:
         query = query.eq("is_active", is_active)
 
-    response = query.order("created_at", desc=True).execute()
-    users = response.data or []
-
-    role_rows = (
-        supabase.table("user_roles")
-        .select("user_id,role:roles(name)")
-        .execute()
-        .data
-        or []
-    )
-    roles_by_user = _as_roles(role_rows)
+    # Daftar user dan daftar role saling independen: role tidak difilter di
+    # query users (filter role dilakukan di Python), jadi keduanya diambil
+    # serentak alih-alih dua round-trip berurutan.
+    results = _run_parallel({
+        "users": lambda: query.order("created_at", desc=True).execute().data or [],
+        "role_rows": lambda: (
+            supabase.table("user_roles")
+            .select("user_id,role:roles(name)")
+            .execute()
+            .data
+            or []
+        ),
+    })
+    users = results["users"]
+    roles_by_user = _as_roles(results["role_rows"])
     student_ids = {
         int((_normalize_profile(user.get("student_profile")) or {}).get("id"))
         for user in users
@@ -1623,22 +1646,33 @@ def list_reviewers(
     _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
-    response = (
-        supabase.table("users")
-        .select(
-            "id,auth_user_id,username,email,is_active,"
-            "lecturer_profile:lecturers(id,nidn,nip,full_name,academic_title,email)"
-        )
-        .order("username")
-        .execute()
-    )
-    rows = response.data or []
+    # users dan user_roles saling independen, diambil serentak.
+    results = _run_parallel({
+        "users": lambda: (
+            supabase.table("users")
+            .select(
+                "id,auth_user_id,username,email,is_active,"
+                "lecturer_profile:lecturers(id,nidn,nip,full_name,academic_title,email)"
+            )
+            .order("username")
+            .execute()
+            .data
+            or []
+        ),
+        "role_rows": lambda: (
+            supabase.table("user_roles")
+            .select("user_id,role:roles(name)")
+            .execute()
+            .data
+            or []
+        ),
+    })
+    rows = results["users"]
     for row in rows:
         row["lecturer_profile"] = _normalize_profile(row.get("lecturer_profile"))
-    role_rows = supabase.table("user_roles").select("user_id,role:roles(name)").execute().data or []
     reviewer_ids = {
         int(row["user_id"])
-        for row in role_rows
+        for row in results["role_rows"]
         if str((row.get("role") or {}).get("name", "")).lower() == "reviewer"
     }
     return [row for row in rows if int(row["id"]) in reviewer_ids]
@@ -1649,16 +1683,28 @@ def list_participants(
     _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
-    response = (
-        supabase.table("users")
-        .select(
-            "id,auth_user_id,username,email,is_active,"
-            "student_profile:students(id,nim,full_name,study_program,class_name,phone)"
-        )
-        .order("username")
-        .execute()
-    )
-    rows = response.data or []
+    # users dan user_roles saling independen, diambil serentak.
+    results = _run_parallel({
+        "users": lambda: (
+            supabase.table("users")
+            .select(
+                "id,auth_user_id,username,email,is_active,"
+                "student_profile:students(id,nim,full_name,study_program,class_name,phone)"
+            )
+            .order("username")
+            .execute()
+            .data
+            or []
+        ),
+        "role_rows": lambda: (
+            supabase.table("user_roles")
+            .select("user_id,role:roles(name)")
+            .execute()
+            .data
+            or []
+        ),
+    })
+    rows = results["users"]
     for row in rows:
         row["student_profile"] = _normalize_profile(row.get("student_profile"))
     student_ids = {
@@ -1671,10 +1717,9 @@ def list_participants(
         profile = row.get("student_profile") or {}
         sid = int(profile["id"]) if profile.get("id") is not None else None
         row["participant_assignments"] = assignment_map.get(sid, []) if sid is not None else []
-    role_rows = supabase.table("user_roles").select("user_id,role:roles(name)").execute().data or []
     peserta_ids = {
         int(row["user_id"])
-        for row in role_rows
+        for row in results["role_rows"]
         if str((row.get("role") or {}).get("name", "")).lower() == "peserta"
     }
     return [row for row in rows if int(row["id"]) in peserta_ids]
@@ -1835,48 +1880,36 @@ def list_projects(
 
     course_ids = {int(row["course_id"]) for row in projects if row.get("course_id")}
     student_ids = {int(row["submitted_by"]) for row in projects if row.get("submitted_by")}
-    course_map: dict[int, dict[str, Any]] = {}
-    student_map: dict[int, dict[str, Any]] = {}
+    project_ids = {int(row["id"]) for row in projects if row.get("id")}
 
-    if course_ids:
-        course_rows = (
+    # courses/students/selections/project_articles hanya bergantung pada
+    # hasil query projects dan saling independen, jadi diambil serentak.
+    wave1 = _run_parallel({
+        "courses": lambda: (
             supabase.table("courses")
             .select("id,code,name")
             .in_("id", list(course_ids))
             .execute()
             .data
             or []
-        )
-        course_map = {int(row["id"]): row for row in course_rows}
-
-    if student_ids:
-        student_rows = (
+        ) if course_ids else [],
+        "students": lambda: (
             supabase.table("students")
             .select("id,user_id,nim,full_name,study_program")
             .in_("id", list(student_ids))
             .execute()
             .data
             or []
-        )
-        student_map = {int(row["id"]): row for row in student_rows}
-
-    project_ids = {int(row["id"]) for row in projects if row.get("id")}
-    selection_map: dict[int, dict[str, Any]] = {}
-    mentor_map: dict[int, dict[str, Any]] = {}
-    latest_article_by_project: dict[int, dict[str, Any]] = {}
-
-    if project_ids:
-        selections = (
+        ) if student_ids else [],
+        "selections": lambda: (
             supabase.table("project_selection")
             .select("id,project_id,selected_by,selection_date,status,score,notes")
             .in_("project_id", list(project_ids))
             .execute()
             .data
             or []
-        )
-        selection_map = {int(row["project_id"]): row for row in selections}
-
-        project_articles = (
+        ) if project_ids else [],
+        "project_articles": lambda: (
             supabase.table("articles")
             .select("id,project_id,title,status,current_version_id,created_at,updated_at")
             .in_("project_id", list(project_ids))
@@ -1884,56 +1917,32 @@ def list_projects(
             .execute()
             .data
             or []
-        )
+        ) if project_ids else [],
+    })
 
-        article_ids: list[int] = []
-        for article in project_articles:
-            if not article.get("id") or not article.get("project_id"):
-                continue
-            article_id = int(article["id"])
-            project_id = int(article["project_id"])
-            article_ids.append(article_id)
-            latest_article_by_project.setdefault(project_id, article)
+    course_map = {
+        int(row["id"]): row for row in wave1["courses"]
+    }
+    student_map = {
+        int(row["id"]): row for row in wave1["students"]
+    }
+    selection_map: dict[int, dict[str, Any]] = {}
+    for row in wave1["selections"]:
+        selection_map[int(row["project_id"])] = row
 
-        if article_ids:
-            mentorships = (
-                supabase.table("mentorship_assignments")
-                .select("id,article_id,lecturer_id,status")
-                .in_("article_id", article_ids)
-                .order("assigned_at", desc=True)
-                .execute()
-                .data
-                or []
-            )
-            lecturer_ids = {int(row["lecturer_id"]) for row in mentorships if row.get("lecturer_id")}
-            lecturer_map: dict[int, dict[str, Any]] = {}
-            if lecturer_ids:
-                lecturers = (
-                    supabase.table("lecturers")
-                    .select("id,user_id,full_name,academic_title,nidn,nip")
-                    .in_("id", list(lecturer_ids))
-                    .execute()
-                    .data
-                    or []
-                )
-                lecturer_map = {int(row["id"]): row for row in lecturers}
+    mentor_map: dict[int, dict[str, Any]] = {}
+    latest_article_by_project: dict[int, dict[str, Any]] = {}
 
-            article_to_project = {
-                int(row["id"]): int(row["project_id"])
-                for row in project_articles
-                if row.get("id") and row.get("project_id")
-            }
-            for mentorship in mentorships:
-                article_id = mentorship.get("article_id")
-                project_id = article_to_project.get(int(article_id)) if article_id else None
-                if project_id is not None and project_id not in mentor_map:
-                    mentor = (
-                        lecturer_map.get(int(mentorship["lecturer_id"]))
-                        if mentorship.get("lecturer_id")
-                        else None
-                    )
-                    if mentor:
-                        mentor_map[project_id] = mentor
+    project_articles = wave1["project_articles"]
+
+    article_ids: list[int] = []
+    for article in project_articles:
+        if not article.get("id") or not article.get("project_id"):
+            continue
+        article_id = int(article["id"])
+        project_id = int(article["project_id"])
+        article_ids.append(article_id)
+        latest_article_by_project.setdefault(project_id, article)
 
     current_version_ids = {
         int(article["current_version_id"])
@@ -1941,21 +1950,27 @@ def list_projects(
         if article.get("current_version_id") is not None
     }
 
-    version_map: dict[int, dict[str, Any]] = {}
-    if current_version_ids:
-        version_rows = (
+    # mentorships/versions/reviews bergantung pada project_articles
+    # (gelombang sebelumnya) tetapi saling independen, jadi serentak juga.
+    wave2 = _run_parallel({
+        "mentorships": lambda: (
+            supabase.table("mentorship_assignments")
+            .select("id,article_id,lecturer_id,status")
+            .in_("article_id", article_ids)
+            .order("assigned_at", desc=True)
+            .execute()
+            .data
+            or []
+        ) if article_ids else [],
+        "versions": lambda: (
             supabase.table("article_versions")
             .select("id,article_id,version_number,file_name,file_path,version_status")
             .in_("id", list(current_version_ids))
             .execute()
             .data
             or []
-        )
-        version_map = {int(row["id"]): row for row in version_rows}
-
-    latest_review_by_version: dict[int, dict[str, Any]] = {}
-    if current_version_ids:
-        review_rows = (
+        ) if current_version_ids else [],
+        "reviews": lambda: (
             supabase.table("reviews")
             .select("id,article_version_id,recommendation,status,submitted_at,created_at")
             .in_("article_version_id", list(current_version_ids))
@@ -1963,14 +1978,54 @@ def list_projects(
             .execute()
             .data
             or []
+        ) if current_version_ids else [],
+    })
+
+    mentorships = wave2["mentorships"]
+    version_map: dict[int, dict[str, Any]] = {
+        int(row["id"]): row for row in wave2["versions"]
+    }
+    review_rows = wave2["reviews"]
+
+    lecturer_ids = {int(row["lecturer_id"]) for row in mentorships if row.get("lecturer_id")}
+    lecturer_map: dict[int, dict[str, Any]] = {}
+    if lecturer_ids:
+        lecturers = (
+            supabase.table("lecturers")
+            .select("id,user_id,full_name,academic_title,nidn,nip")
+            .in_("id", list(lecturer_ids))
+            .execute()
+            .data
+            or []
         )
-        for review in review_rows:
-            version_id = review.get("article_version_id")
-            if version_id is None or int(version_id) in latest_review_by_version:
-                continue
-            review_status = str(review.get("status") or "").strip().lower()
-            if review.get("submitted_at") or review_status == "submitted":
-                latest_review_by_version[int(version_id)] = review
+        lecturer_map = {int(row["id"]): row for row in lecturers}
+
+    if article_ids:
+        article_to_project = {
+            int(row["id"]): int(row["project_id"])
+            for row in project_articles
+            if row.get("id") and row.get("project_id")
+        }
+        for mentorship in mentorships:
+            article_id = mentorship.get("article_id")
+            project_id = article_to_project.get(int(article_id)) if article_id else None
+            if project_id is not None and project_id not in mentor_map:
+                mentor = (
+                    lecturer_map.get(int(mentorship["lecturer_id"]))
+                    if mentorship.get("lecturer_id")
+                    else None
+                )
+                if mentor:
+                    mentor_map[project_id] = mentor
+
+    latest_review_by_version: dict[int, dict[str, Any]] = {}
+    for review in review_rows:
+        version_id = review.get("article_version_id")
+        if version_id is None or int(version_id) in latest_review_by_version:
+            continue
+        review_status = str(review.get("status") or "").strip().lower()
+        if review.get("submitted_at") or review_status == "submitted":
+            latest_review_by_version[int(version_id)] = review
 
     for row in projects:
         pid = int(row["id"]) if row.get("id") else None
@@ -2198,10 +2253,70 @@ def list_articles(
     project_ids = {int(row["project_id"]) for row in articles if row.get("project_id")}
     version_ids = {int(row["current_version_id"]) for row in articles if row.get("current_version_id")}
 
-    journals = supabase.table("journals").select("id,name,abbreviation,sinta_level").in_("id", list(journal_ids)).execute().data if journal_ids else []
-    projects = supabase.table("projects").select("id,title,submitted_by").in_("id", list(project_ids)).execute().data if project_ids else []
-    versions = supabase.table("article_versions").select("id,article_id,version_number,file_name,file_url,version_status,uploaded_by,uploaded_at").in_("id", list(version_ids)).execute().data if version_ids else []
-    authors = supabase.table("article_authors").select("article_id,student_id,author_order,is_corresponding").in_("article_id", article_ids).execute().data if article_ids else []
+    # Lookup jurnal/proyek/versi/author/review hanya bergantung pada hasil
+    # query articles, satu sama lain independen, jadi dijalankan serentak.
+    # Query reviews di-batch memakai .in_() menggantikan satu query per
+    # artikel (pola N+1 lama: 38 artikel = 38 round-trip sekuensial).
+    lookups = _run_parallel({
+        "journals": lambda: (
+            supabase.table("journals")
+            .select("id,name,abbreviation,sinta_level")
+            .in_("id", list(journal_ids))
+            .execute()
+            .data
+            or []
+        ) if journal_ids else [],
+        "projects": lambda: (
+            supabase.table("projects")
+            .select("id,title,submitted_by")
+            .in_("id", list(project_ids))
+            .execute()
+            .data
+            or []
+        ) if project_ids else [],
+        "versions": lambda: (
+            supabase.table("article_versions")
+            .select("id,article_id,version_number,file_name,file_url,version_status,uploaded_by,uploaded_at")
+            .in_("id", list(version_ids))
+            .execute()
+            .data
+            or []
+        ) if version_ids else [],
+        "authors": lambda: (
+            supabase.table("article_authors")
+            .select("article_id,student_id,author_order,is_corresponding")
+            .in_("article_id", article_ids)
+            .execute()
+            .data
+            or []
+        ) if article_ids else [],
+        "reviews": lambda: (
+            supabase.table("reviews")
+            .select("id,article_version_id,recommendation,status,submitted_at,created_at")
+            .in_("article_version_id", list(version_ids))
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ) if version_ids else [],
+    })
+
+    journals = lookups["journals"]
+    projects = lookups["projects"]
+    versions = lookups["versions"]
+    authors = lookups["authors"]
+    review_rows = lookups["reviews"]
+
+    # Kelompokkan review per versi dengan urutan created_at desc tetap
+    # terjaga, lalu potong 20 per versi agar identik dengan query asli yang
+    # memakai limit(20) per versi.
+    reviews_by_version: dict[int, list[dict[str, Any]]] = {}
+    for review in review_rows:
+        version_id = review.get("article_version_id")
+        if version_id is not None:
+            reviews_by_version.setdefault(int(version_id), []).append(review)
+    for version_id in reviews_by_version:
+        reviews_by_version[version_id] = reviews_by_version[version_id][:20]
 
     journal_map = {int(row["id"]): row for row in (journals or [])}
     project_map = {int(row["id"]): row for row in (projects or [])}
@@ -2224,18 +2339,8 @@ def list_articles(
         current_review = None
         current_version = row.get("current_version")
         if current_version and current_version.get("id") is not None:
-            review_rows = (
-                supabase.table("reviews")
-                .select("id,article_version_id,recommendation,status,submitted_at,created_at")
-                .eq("article_version_id", int(current_version["id"]))
-                .order("created_at", desc=True)
-                .limit(20)
-                .execute()
-                .data
-                or []
-            )
             current_review = next(
-                (review for review in review_rows
+                (review for review in reviews_by_version.get(int(current_version["id"]), [])
                  if review.get("submitted_at")
                  or str(review.get("status") or "").strip().lower() == "submitted"),
                 None,
@@ -2423,23 +2528,75 @@ def article_workflow(
     _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
-    article = (
-        supabase.table("articles")
-        .select("id,project_id,title,abstract,journal_id,status,current_version_id,submitted_at,finalized_at,created_at,updated_at")
-        .eq("id", article_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not article:
+    # Keenam query hanya difilter oleh article_id dan saling independen,
+    # jadi diambil dalam satu gelombang paralel.
+    results = _run_parallel({
+        "article": lambda: (
+            supabase.table("articles")
+            .select("id,project_id,title,abstract,journal_id,status,current_version_id,submitted_at,finalized_at,created_at,updated_at")
+            .eq("id", article_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        ),
+        "versions": lambda: (
+            supabase.table("article_versions")
+            .select("id,article_id,version_number,file_name,file_url,file_type,file_size,uploaded_by,version_status,submission_note,uploaded_at")
+            .eq("article_id", article_id)
+            .order("version_number", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "authors": lambda: (
+            supabase.table("article_authors")
+            .select("id,student_id,author_order,is_corresponding")
+            .eq("article_id", article_id)
+            .order("author_order")
+            .execute()
+            .data
+            or []
+        ),
+        "reviewer_assignments": lambda: (
+            supabase.table("reviewer_assignments")
+            .select("id,article_id,article_version_id,reviewer_id,assigned_by,assigned_at,deadline,status,admin_note,completed_at,created_at,updated_at")
+            .eq("article_id", article_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "mentorship_assignments": lambda: (
+            supabase.table("mentorship_assignments")
+            .select("id,student_id,lecturer_id,article_id,assigned_by,assigned_at,status,notes")
+            .eq("article_id", article_id)
+            .order("assigned_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "revision_requests": lambda: (
+            supabase.table("revision_requests")
+            .select("id,article_id,review_id,requested_by,revision_round,instructions,deadline,status,created_at,completed_at")
+            .eq("article_id", article_id)
+            .order("revision_round", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+    })
+    article_rows = results["article"]
+    if not article_rows:
         raise HTTPException(status_code=404, detail="Artikel tidak ditemukan")
     return {
-        "article": article,
-        "versions": supabase.table("article_versions").select("id,article_id,version_number,file_name,file_url,file_type,file_size,uploaded_by,version_status,submission_note,uploaded_at").eq("article_id", article_id).order("version_number", desc=True).execute().data or [],
-        "authors": supabase.table("article_authors").select("id,student_id,author_order,is_corresponding").eq("article_id", article_id).order("author_order").execute().data or [],
-        "reviewer_assignments": supabase.table("reviewer_assignments").select("id,article_id,article_version_id,reviewer_id,assigned_by,assigned_at,deadline,status,admin_note,completed_at,created_at,updated_at").eq("article_id", article_id).order("created_at", desc=True).execute().data or [],
-        "mentorship_assignments": supabase.table("mentorship_assignments").select("id,student_id,lecturer_id,article_id,assigned_by,assigned_at,status,notes").eq("article_id", article_id).order("assigned_at", desc=True).execute().data or [],
-        "revision_requests": supabase.table("revision_requests").select("id,article_id,review_id,requested_by,revision_round,instructions,deadline,status,created_at,completed_at").eq("article_id", article_id).order("revision_round", desc=True).execute().data or [],
+        # Bentuk asli dipertahankan: nilai "article" adalah list hasil .data.
+        "article": article_rows,
+        "versions": results["versions"],
+        "authors": results["authors"],
+        "reviewer_assignments": results["reviewer_assignments"],
+        "mentorship_assignments": results["mentorship_assignments"],
+        "revision_requests": results["revision_requests"],
     }
 
 
@@ -2458,29 +2615,50 @@ def list_reviewer_assignments(
 
     article_ids = {int(row["article_id"]) for row in rows if row.get("article_id")}
     reviewer_ids = {int(row["reviewer_id"]) for row in rows if row.get("reviewer_id")}
-    article_map: dict[int, dict[str, Any]] = {}
-    reviewer_map: dict[int, dict[str, Any]] = {}
-    if article_ids:
-        article_rows = supabase.table("articles").select("id,title,status,journal_id,current_version_id").in_("id", list(article_ids)).execute().data or []
-        article_map = {int(row["id"]): row for row in article_rows}
-    if reviewer_ids:
-        reviewer_rows = supabase.table("users").select("id,username,email,is_active").in_("id", list(reviewer_ids)).execute().data or []
-        lecturer_rows = supabase.table("lecturers").select("user_id,full_name,academic_title,nidn,nip").in_("user_id", list(reviewer_ids)).execute().data or []
-        lecturer_map = {int(row["user_id"]): row for row in lecturer_rows}
-        reviewer_map = {int(row["id"]): {**row, "profile": lecturer_map.get(int(row["id"]))} for row in reviewer_rows}
-
     version_ids = {int(row["article_version_id"]) for row in rows if row.get("article_version_id")}
-    version_map: dict[int, dict[str, Any]] = {}
-    if version_ids:
-        version_rows = (
+    # Semua lookup di bawah hanya bergantung pada `rows` dan saling
+    # independen, jadi dijalankan dalam satu gelombang.
+    lookups = _run_parallel({
+        "articles": lambda: (
+            supabase.table("articles")
+            .select("id,title,status,journal_id,current_version_id")
+            .in_("id", list(article_ids))
+            .execute()
+            .data
+            or []
+        ) if article_ids else [],
+        "users": lambda: (
+            supabase.table("users")
+            .select("id,username,email,is_active")
+            .in_("id", list(reviewer_ids))
+            .execute()
+            .data
+            or []
+        ) if reviewer_ids else [],
+        "lecturers": lambda: (
+            supabase.table("lecturers")
+            .select("user_id,full_name,academic_title,nidn,nip")
+            .in_("user_id", list(reviewer_ids))
+            .execute()
+            .data
+            or []
+        ) if reviewer_ids else [],
+        "versions": lambda: (
             supabase.table("article_versions")
             .select("id,article_id,version_number,file_name,file_url,version_status,uploaded_at")
             .in_("id", list(version_ids))
             .execute()
             .data
             or []
-        )
-        version_map = {int(row["id"]): row for row in version_rows}
+        ) if version_ids else [],
+    })
+    article_map = {int(row["id"]): row for row in lookups["articles"]}
+    lecturer_map = {int(row["user_id"]): row for row in lookups["lecturers"]}
+    reviewer_map = {
+        int(row["id"]): {**row, "profile": lecturer_map.get(int(row["id"]))}
+        for row in lookups["users"]
+    }
+    version_map = {int(row["id"]): row for row in lookups["versions"]}
 
     for row in rows:
         row["article"] = article_map.get(int(row["article_id"])) if row.get("article_id") else None
@@ -2663,22 +2841,35 @@ def list_reviews(
     rows = query.order("created_at", desc=True).execute().data or []
 
     assignment_ids = {int(row["assignment_id"]) for row in rows if row.get("assignment_id")}
-    article_map: dict[int, dict[str, Any]] = {}
-    reviewer_map: dict[int, dict[str, Any]] = {}
-    if assignment_ids:
-        assignments = supabase.table("reviewer_assignments").select("id,article_id,deadline,status,assigned_at").in_("id", list(assignment_ids)).execute().data or []
-        article_ids = {int(row["article_id"]) for row in assignments if row.get("article_id")}
-        if article_ids:
-            articles = supabase.table("articles").select("id,title,status,journal_id").in_("id", list(article_ids)).execute().data or []
-            article_map = {int(row["id"]): row for row in articles}
-        assignment_map = {int(row["id"]): row for row in assignments}
-    else:
-        assignment_map = {}
-
     reviewer_ids = {int(row["reviewer_id"]) for row in rows if row.get("reviewer_id")}
-    if reviewer_ids:
-        reviewer_rows = supabase.table("users").select("id,username,email").in_("id", list(reviewer_ids)).execute().data or []
-        reviewer_map = {int(row["id"]): row for row in reviewer_rows}
+    # assignments dan reviewer users keduanya hanya bergantung pada `rows`
+    # dan saling independen, jadi diambil serentak.
+    wave1 = _run_parallel({
+        "assignments": lambda: (
+            supabase.table("reviewer_assignments")
+            .select("id,article_id,deadline,status,assigned_at")
+            .in_("id", list(assignment_ids))
+            .execute()
+            .data
+            or []
+        ) if assignment_ids else [],
+        "reviewers": lambda: (
+            supabase.table("users")
+            .select("id,username,email")
+            .in_("id", list(reviewer_ids))
+            .execute()
+            .data
+            or []
+        ) if reviewer_ids else [],
+    })
+    assignments = wave1["assignments"]
+    article_map: dict[int, dict[str, Any]] = {}
+    assignment_map = {int(row["id"]): row for row in assignments}
+    article_ids = {int(row["article_id"]) for row in assignments if row.get("article_id")}
+    if article_ids:
+        articles = supabase.table("articles").select("id,title,status,journal_id").in_("id", list(article_ids)).execute().data or []
+        article_map = {int(row["id"]): row for row in articles}
+    reviewer_map = {int(row["id"]): row for row in wave1["reviewers"]}
 
     for row in rows:
         assignment = assignment_map.get(int(row["assignment_id"])) if row.get("assignment_id") else None
@@ -2709,14 +2900,35 @@ def list_reviewer_history(
     version_ids = {int(row["article_version_id"]) for row in rows if row.get("article_version_id") is not None}
     reviewer_ids = {int(row["reviewer_id"]) for row in rows if row.get("reviewer_id") is not None}
 
-    assignments = (
-        supabase.table("reviewer_assignments")
-        .select("id,article_id")
-        .in_("id", list(assignment_ids))
-        .execute()
-        .data
-        or []
-    ) if assignment_ids else []
+    # assignments/versions/lecturers hanya bergantung pada hasil query
+    # reviews dan saling independen, jadi diambil serentak.
+    wave1 = _run_parallel({
+        "assignments": lambda: (
+            supabase.table("reviewer_assignments")
+            .select("id,article_id")
+            .in_("id", list(assignment_ids))
+            .execute()
+            .data
+            or []
+        ) if assignment_ids else [],
+        "versions": lambda: (
+            supabase.table("article_versions")
+            .select("id,article_id,version_number")
+            .in_("id", list(version_ids))
+            .execute()
+            .data
+            or []
+        ) if version_ids else [],
+        "lecturers": lambda: (
+            supabase.table("lecturers")
+            .select("user_id,full_name")
+            .in_("user_id", list(reviewer_ids))
+            .execute()
+            .data
+            or []
+        ) if reviewer_ids else [],
+    })
+    assignments = wave1["assignments"]
     assignment_map = {int(row["id"]): row for row in assignments}
 
     article_ids = {int(row["article_id"]) for row in assignments if row.get("article_id") is not None}
@@ -2730,14 +2942,7 @@ def list_reviewer_history(
     ) if article_ids else []
     article_map = {int(row["id"]): row for row in articles}
 
-    versions = (
-        supabase.table("article_versions")
-        .select("id,article_id,version_number")
-        .in_("id", list(version_ids))
-        .execute()
-        .data
-        or []
-    ) if version_ids else []
+    versions = wave1["versions"]
     version_map = {int(row["id"]): row for row in versions}
 
     authors = (
@@ -2760,14 +2965,7 @@ def list_reviewer_history(
     ) if student_ids else []
     student_map = {int(row["id"]): row for row in students}
 
-    lecturers = (
-        supabase.table("lecturers")
-        .select("user_id,full_name")
-        .in_("user_id", list(reviewer_ids))
-        .execute()
-        .data
-        or []
-    ) if reviewer_ids else []
+    lecturers = wave1["lecturers"]
     lecturer_map = {int(row["user_id"]): row for row in lecturers}
 
     authors_by_article: dict[int, list[str]] = {}
@@ -2824,18 +3022,36 @@ def list_mentorship_assignments(
     student_ids = {int(row["student_id"]) for row in rows if row.get("student_id")}
     lecturer_ids = {int(row["lecturer_id"]) for row in rows if row.get("lecturer_id")}
     article_ids = {int(row["article_id"]) for row in rows if row.get("article_id")}
-    student_map = {}
-    lecturer_map = {}
-    article_map = {}
-    if student_ids:
-        student_rows = supabase.table("students").select("id,user_id,nim,full_name,study_program").in_("id", list(student_ids)).execute().data or []
-        student_map = {int(row["id"]): row for row in student_rows}
-    if lecturer_ids:
-        lecturer_rows = supabase.table("lecturers").select("id,user_id,full_name,academic_title,nidn,nip").in_("id", list(lecturer_ids)).execute().data or []
-        lecturer_map = {int(row["id"]): row for row in lecturer_rows}
-    if article_ids:
-        article_rows = supabase.table("articles").select("id,title,status").in_("id", list(article_ids)).execute().data or []
-        article_map = {int(row["id"]): row for row in article_rows}
+    # Tiga lookup pelengkap saling independen, diambil serentak.
+    lookups = _run_parallel({
+        "students": lambda: (
+            supabase.table("students")
+            .select("id,user_id,nim,full_name,study_program")
+            .in_("id", list(student_ids))
+            .execute()
+            .data
+            or []
+        ) if student_ids else [],
+        "lecturers": lambda: (
+            supabase.table("lecturers")
+            .select("id,user_id,full_name,academic_title,nidn,nip")
+            .in_("id", list(lecturer_ids))
+            .execute()
+            .data
+            or []
+        ) if lecturer_ids else [],
+        "articles": lambda: (
+            supabase.table("articles")
+            .select("id,title,status")
+            .in_("id", list(article_ids))
+            .execute()
+            .data
+            or []
+        ) if article_ids else [],
+    })
+    student_map = {int(row["id"]): row for row in lookups["students"]}
+    lecturer_map = {int(row["id"]): row for row in lookups["lecturers"]}
+    article_map = {int(row["id"]): row for row in lookups["articles"]}
     for row in rows:
         row["student"] = student_map.get(int(row["student_id"])) if row.get("student_id") else None
         row["reviewer"] = lecturer_map.get(int(row["lecturer_id"])) if row.get("lecturer_id") else None
@@ -3170,23 +3386,65 @@ def project_workflow(
     _: dict = Depends(require_admin_or_dashboard),
     supabase: Client = Depends(get_service_client),
 ):
-    project = (
-        supabase.table("projects")
-        .select("id,title,description,course_id,project_type,project_url,documentation_url,submitted_by,submitted_at,status,created_at,updated_at")
-        .eq("id", project_id)
-        .limit(1)
-        .execute()
-        .data
-    )
+    # project/members/selection hanya difilter oleh project_id dan saling
+    # independen. articles juga hanya difilter project_id, sehingga keempatnya
+    # bisa diambil serentak; mentorships bergantung pada daftar artikel.
+    wave1 = _run_parallel({
+        "project": lambda: (
+            supabase.table("projects")
+            .select("id,title,description,course_id,project_type,project_url,documentation_url,submitted_by,submitted_at,status,created_at,updated_at")
+            .eq("id", project_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        ),
+        "articles": lambda: (
+            supabase.table("articles")
+            .select("id,project_id,title,journal_id,status,current_version_id,submitted_at,finalized_at")
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        ),
+        "members": lambda: (
+            supabase.table("project_members")
+            .select("id,project_id,student_id,member_role")
+            .eq("project_id", project_id)
+            .order("id")
+            .execute()
+            .data
+            or []
+        ),
+        "selection": lambda: (
+            supabase.table("project_selection")
+            .select("id,project_id,selected_by,selection_date,status,score,notes,created_at,updated_at")
+            .eq("project_id", project_id)
+            .maybe_single()
+            .execute()
+            .data
+        ),
+    })
+    project = wave1["project"]
     if not project:
         raise HTTPException(status_code=404, detail="Project tidak ditemukan")
-    articles = supabase.table("articles").select("id,project_id,title,journal_id,status,current_version_id,submitted_at,finalized_at").eq("project_id", project_id).order("created_at", desc=True).execute().data or []
+    articles = wave1["articles"]
+    mentorship_assignments = (
+        supabase.table("mentorship_assignments")
+        .select("id,student_id,lecturer_id,article_id,assigned_by,assigned_at,status,notes")
+        .in_("article_id", [int(a["id"]) for a in articles])
+        .execute()
+        .data
+        if articles
+        else []
+    ) or []
     return {
         "project": project,
-        "members": supabase.table("project_members").select("id,project_id,student_id,member_role").eq("project_id", project_id).order("id").execute().data or [],
-        "selection": supabase.table("project_selection").select("id,project_id,selected_by,selection_date,status,score,notes,created_at,updated_at").eq("project_id", project_id).maybe_single().execute().data,
+        "members": wave1["members"],
+        "selection": wave1["selection"],
         "articles": articles,
-        "mentorship_assignments": (supabase.table("mentorship_assignments").select("id,student_id,lecturer_id,article_id,assigned_by,assigned_at,status,notes").in_("article_id", [int(a["id"]) for a in articles]).execute().data if articles else []) or [],
+        "mentorship_assignments": mentorship_assignments,
     }
 
 
